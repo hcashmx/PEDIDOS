@@ -1,0 +1,61 @@
+
+CREATE TABLE folioSeries_pedidos (
+    id_pedido INTEGER PRIMARY KEY AUTOINCREMENT,
+    serie_id INTEGER NOT NULL,
+    folio INTEGER NOT NULL,
+    updated_at TEXT,
+
+
+    UNIQUE (serie_id, folio)
+);
+
+--------------------------------------------------------------------------------
+-- 2. CREATE / UPDATE (CRUD: C y U)
+--------------------------------------------------------------------------------
+
+-- Comando de UPSERT para la sincronización de catálogo.
+-- Implementa la lógica: INSERT INTO ... ON CONFLICT DO UPDATE
+
+upsertPedidos:
+INSERT OR REPLACE INTO folioSeries_pedidos (serie_id, folio, updated_at) VALUES (?,?,?);
+--------------------------------------------------------------------------------
+-- 3. READ (CRUD: R)
+--------------------------------------------------------------------------------
+
+-- Leer todos los registros
+selectAll:
+SELECT * FROM folioSeries_pedidos;
+
+-- Leer un registro por su clave compuesta
+selectBySerieFolio:
+SELECT * FROM folioSeries_pedidos
+WHERE serie_id = ? AND folio = ?;
+
+-- Leer el último registro actualizado (útil para la siguiente sincronización)
+selectLastUpdated:
+SELECT * FROM folioSeries_pedidos
+ORDER BY updated_at DESC
+LIMIT 1;
+
+--------------------------------------------------------------------------------
+-- 4. DELETE (CRUD: D)
+--------------------------------------------------------------------------------
+
+-- Borrar un registro por su clave compuesta
+deleteBySerieFolio:
+DELETE FROM folioSeries_pedidos
+WHERE serie_id = ? AND folio = ?;
+
+-- Borrar todos los registros
+deleteAll:
+DELETE FROM folioSeries_pedidos;
+
+
+existePedidoConFolio:
+SELECT COUNT(id_pedido) FROM folioSeries_pedidos
+WHERE serie_id = ? AND folio = ?;
+
+
+getMaxFolioPorSerie:
+SELECT MAX(folio) AS max_folio FROM folioSeries_pedidos
+WHERE serie_id = ?;

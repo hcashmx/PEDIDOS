@@ -1,0 +1,39 @@
+CREATE TABLE clientes_ubicaciones (
+    id_cliente_ubicacion INTEGER NOT NULL PRIMARY KEY,
+    id_cliente INTEGER NOT NULL,
+    alias TEXT,
+    activo INTEGER,
+    contacto_persona TEXT,
+    contacto_telefono TEXT,
+    direccion TEXT,
+    no_exterior TEXT,
+    no_interior TEXT,
+    colonia TEXT,
+    localidad TEXT,
+    municipio TEXT,
+    estado TEXT,
+    pais TEXT,
+    codigo_postal TEXT,
+    referencia TEXT,
+    latitud REAL,
+    longitud REAL,
+    updated_at TEXT
+);
+
+-- Obtener todas las ubicaciones de un cliente específico
+getUbicacionesPorCliente:
+SELECT * FROM clientes_ubicaciones WHERE id_cliente = ? AND activo = 1;
+
+-- Insertar o actualizar
+insertClientesUbicaciones:
+INSERT OR REPLACE INTO clientes_ubicaciones (
+    id_cliente_ubicacion, id_cliente, alias, activo, contacto_persona,
+    contacto_telefono, direccion, no_exterior, no_interior, colonia,
+    localidad, municipio, estado, pais, codigo_postal, referencia,
+    latitud, longitud, updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Para sincronización incremental
+getMaxUpdatedAt:
+SELECT MAX(updated_at) AS max_updated_at FROM clientes_ubicaciones;

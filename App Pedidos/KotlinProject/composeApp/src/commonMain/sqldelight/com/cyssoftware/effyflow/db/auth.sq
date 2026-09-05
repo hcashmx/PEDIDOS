@@ -1,0 +1,23 @@
+CREATE TABLE UserSession (
+    id INTEGER PRIMARY KEY NOT NULL DEFAULT 1, -- Forzamos que siempre sea el ID 1 para tener solo una sesión activa
+    email TEXT NOT NULL,
+    password TEXT NOT NULL,
+    accessToken TEXT NOT NULL,
+    refreshToken TEXT,
+    roles TEXT,
+    usuarioName TEXT,
+    usuarioId INTEGER
+);
+
+-- Guardar o Actualizar sesión (Upsert)
+insertOrReplaceSession:
+INSERT OR REPLACE INTO UserSession(id, email, password, accessToken, refreshToken, roles, usuarioName, usuarioId)
+VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+
+-- Obtener sesión
+getSession:
+SELECT * FROM UserSession WHERE id = 1;
+
+-- Borrar sesión (Logout)
+clearSession:
+DELETE FROM UserSession;

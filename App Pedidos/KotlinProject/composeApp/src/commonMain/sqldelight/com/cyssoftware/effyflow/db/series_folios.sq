@@ -1,0 +1,62 @@
+CREATE TABLE series_folios (
+    id_serie INTEGER NOT NULL PRIMARY KEY,
+    codigo_serie TEXT,
+    descripcion TEXT,
+    tipo_movimiento_id INTEGER,
+    tipo_movimiento_inventario INTEGER,
+    folio INTEGER,
+    formato_impresion TEXT,
+    serie_devolucion_id INTEGER,
+    activa INTEGER,
+    es_consecutiva INTEGER,
+    tipo_serie TEXT,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM series_folios;
+
+
+
+insertSeriesFolios:
+INSERT OR REPLACE INTO series_folios (
+    id_serie,
+    codigo_serie,
+    descripcion,
+    tipo_movimiento_id,
+    tipo_movimiento_inventario,
+    folio,
+    formato_impresion,
+    serie_devolucion_id,
+    activa,
+    es_consecutiva,
+    tipo_serie,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateSeriesFolios:
+UPDATE series_folios
+SET
+    codigo_serie = ?,
+    descripcion = ?,
+    tipo_movimiento_id = ?,
+    tipo_movimiento_inventario = ?,
+    folio = ?,
+    formato_impresion = ?,
+    serie_devolucion_id = ?,
+    activa = ?,
+    es_consecutiva = ?,
+    tipo_serie = ?,
+    updated_at = ?
+WHERE id_serie = ?;
+
+deleteSeriesFolios:
+DELETE FROM series_folios WHERE id_serie = ?;
+
+
+getSerieByIdFromPedido:
+SELECT * FROM series_folios WHERE id_serie = ?;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM series_folios;

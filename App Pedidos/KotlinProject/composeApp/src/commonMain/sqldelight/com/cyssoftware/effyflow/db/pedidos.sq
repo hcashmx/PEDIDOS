@@ -1,0 +1,181 @@
+CREATE TABLE pedidos (
+    id_pedido INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL,
+    agente_ventas_id INTEGER NOT NULL,
+    usuario_creo_id INTEGER NOT NULL,
+    usuario_autorizo_id INTEGER ,
+    serie_id INTEGER NOT NULL,
+    folio INTEGER NOT NULL,
+    fecha_creacion TEXT NOT NULL,
+    fecha_autorizacion TEXT,
+    fecha_envio_almacen TEXT,
+    fecha_cierre TEXT,
+    plazo INTEGER NOT NULL,
+    estado TEXT,
+    observaciones TEXT,
+    venta_id INTEGER,
+    total_solicitado REAL,
+    total_autorizado REAL,
+    total_facturado REAL,
+    uuid_local TEXT,
+    uuid_server TEXT,
+    updated_at TEXT,
+    synced_at TEXT,
+    estado_id INTEGER,
+    tipo_documento TEXT NOT NULL DEFAULT 'FACTURA', -- Puede ser 'FACTURA' o 'REMISION'
+     ubicacion_id INTEGER
+);
+
+selectAll:
+SELECT * FROM pedidos;
+
+findById:
+SELECT * FROM pedidos WHERE id_pedido = ?;
+
+insertPedidos:
+INSERT INTO pedidos (
+    cliente_id,
+    agente_ventas_id,
+    usuario_creo_id,
+    usuario_autorizo_id,
+    serie_id,
+    folio,
+    fecha_creacion,
+    fecha_autorizacion,
+    fecha_envio_almacen,
+    fecha_cierre,
+    plazo,
+    estado,
+    observaciones,
+    venta_id,
+    total_solicitado,
+    total_autorizado,
+    total_facturado,
+    uuid_local,
+    uuid_server,
+    updated_at,
+    synced_at,
+    tipo_documento,
+    ubicacion_id
+)
+VALUES (?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+lastInsertRowId:
+SELECT last_insert_rowid();
+
+updatePedidos:
+UPDATE pedidos
+SET
+    cliente_id = ?,
+    agente_ventas_id = ?,
+    usuario_creo_id = ?,
+    usuario_autorizo_id = ?,
+    serie_id = ?,
+    folio = ?,
+    fecha_creacion = ?,
+    fecha_autorizacion = ?,
+    fecha_envio_almacen = ?,
+    fecha_cierre = ?,
+    plazo = ?,
+    estado = ?,
+    observaciones = ?,
+    venta_id = ?,
+    total_solicitado = ?,
+    total_autorizado = ?,
+    total_facturado = ?,
+    uuid_local = ?,
+    uuid_server = ?,
+    updated_at = ?,
+    synced_at = ?,
+    tipo_documento =?
+WHERE id_pedido = ?;
+
+deletePedidos:
+DELETE FROM pedidos WHERE id_pedido = ?;
+
+updateStatus:
+UPDATE pedidos
+SET
+    estado = ?,
+    uuid_server = ?,
+    estado_id=?,
+    synced_at = ?
+WHERE id_pedido = ?;
+
+-- En pedidos.sq
+-- En pedidos.sq
+
+getPedidosFiltrados:
+SELECT
+    P.*,
+    C.nombre AS nombreCliente
+FROM pedidos P
+JOIN clientes C ON P.cliente_id = C.id_cliente
+LEFT JOIN detalle_pedidos DP ON P.id_pedido = DP.pedido_id
+LEFT JOIN productos PR ON DP.producto_id = PR.id_producto
+WHERE
+    -- 1. Filtrar por Agente (Obligatorio)
+    P.agente_ventas_id = :agenteId
+
+    -- 2. Filtrar por Fecha INICIO (Si no es NULL, la fecha debe ser mayor o igual)
+    AND ( :fechaInicio IS NULL OR date(P.fecha_creacion) >= date(:fechaInicio) )
+
+    -- 3. Filtrar por Fecha FIN (Si no es NULL, la fecha debe ser menor o igual)
+    AND ( :fechaFin IS NULL OR date(P.fecha_creacion) <= date(:fechaFin) )
+
+    -- 4. Filtrar por Cliente
+    AND ( :clienteNombre IS NULL OR C.nombre LIKE '%' || :clienteNombre || '%' )
+
+    -- 5. Filtrar por Estatus
+    AND ( :estatus IS NULL OR P.synced_at = :estatus )
+
+    -- 6. Filtrar por Producto
+    AND ( :productoNombre IS NULL OR PR.nombre LIKE '%' || :productoNombre || '%' )
+
+GROUP BY P.id_pedido
+ORDER BY P.fecha_creacion DESC;
+
+
+getMaxFolioPorSerie:
+SELECT MAX(folio) AS max_folio
+FROM pedidos
+WHERE serie_id = ?;
+
+
+existePedidoConFolio:
+SELECT COUNT(*) FROM pedidos WHERE serie_id = ? AND folio = ?;
+
+getPedidosPendientesSync:
+SELECT * FROM pedidos
+WHERE synced_at = 'PENDIENTE_SYNC'
+ORDER BY id_pedido ASC;
+
+updatePedidoSyncOk:
+UPDATE pedidos
+SET
+    estado = 'SYNCHRONIZED',
+    synced_at = 'SYNCHRONIZED',
+    uuid_server = :uuidServer,
+    folio=:folio,
+    estado_id=:estado_id
+WHERE id_pedido = :idPedido;
+
+
+updatePedidoSyncServer:
+UPDATE pedidos
+SET
+    estado_id=:estado_id
+WHERE id_pedido = :id_pedido;
+
+getPedidoConClienteById:
+SELECT
+    P.*,
+    C.nombre AS nombreCliente,
+    C.rfc AS rfcCliente,
+    C.direccion AS direccionCliente
+FROM pedidos P
+JOIN clientes C ON P.cliente_id = C.id_cliente
+WHERE P.id_pedido = ?;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM pedidos;

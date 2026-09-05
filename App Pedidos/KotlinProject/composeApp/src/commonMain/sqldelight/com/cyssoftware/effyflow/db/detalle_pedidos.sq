@@ -1,0 +1,83 @@
+CREATE TABLE detalle_pedidos (
+    id_detalle_pedido INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    pedido_id INTEGER NOT NULL,
+    producto_id INTEGER NOT NULL,
+    presentacion_id INTEGER,
+    almacen_id INTEGER,
+    cantidad_solicitada REAL NOT NULL,
+    cantidad_autorizada REAL NOT NULL,
+    cantidad_reservada REAL NOT NULL,
+    cantidad_surtida REAL NOT NULL,
+    cantidad_cancelada REAL NOT NULL,
+    precio_unitario REAL,
+    descuento REAL,
+    impuestos TEXT,
+    total_linea REAL,
+    estado_linea TEXT,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM detalle_pedidos;
+
+findById:
+SELECT * FROM detalle_pedidos WHERE id_detalle_pedido = ?;
+
+insertDetallePedidos:
+INSERT INTO detalle_pedidos (
+    pedido_id,
+    producto_id,
+    presentacion_id,
+    almacen_id,
+    cantidad_solicitada,
+    cantidad_autorizada,
+    cantidad_reservada,
+    cantidad_surtida,
+    cantidad_cancelada,
+    precio_unitario,
+    descuento,
+    impuestos,
+    total_linea,
+    estado_linea,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateDetallePedidos:
+UPDATE detalle_pedidos
+SET
+    pedido_id = ?,
+    producto_id = ?,
+    presentacion_id = ?,
+    almacen_id = ?,
+    cantidad_solicitada = ?,
+    cantidad_autorizada = ?,
+    cantidad_reservada = ?,
+    cantidad_surtida = ?,
+    cantidad_cancelada = ?,
+    precio_unitario = ?,
+    descuento = ?,
+    impuestos = ?,
+    total_linea = ?,
+    estado_linea = ?,
+    updated_at = ?
+WHERE id_detalle_pedido = ?;
+
+deleteDetallePedidos:
+DELETE FROM detalle_pedidos WHERE id_detalle_pedido = ?;
+
+getDetalleConProductoPorPedidoId:
+SELECT
+    DP.*,
+    Prod.nombre AS nombreProducto,
+    Prod.codigo AS codigoProducto
+FROM detalle_pedidos DP
+JOIN productos Prod ON DP.producto_id = Prod.id_producto
+WHERE DP.pedido_id = ?;
+
+
+
+getDetallesPorPedido:
+SELECT * FROM detalle_pedidos WHERE pedido_id = ?;
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM detalle_pedidos;

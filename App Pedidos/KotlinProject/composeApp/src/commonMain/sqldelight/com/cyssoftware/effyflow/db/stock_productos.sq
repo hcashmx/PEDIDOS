@@ -1,0 +1,38 @@
+CREATE TABLE stock_productos (
+    id_ubicacion INTEGER NOT NULL,
+    id_producto INTEGER NOT NULL,
+    cantidad REAL DEFAULT 0,
+    updated_at TEXT,
+    PRIMARY KEY (id_producto, id_ubicacion)
+);
+
+selectAll:
+SELECT * FROM stock_productos;
+
+findById:
+SELECT * FROM stock_productos WHERE id_ubicacion = ? AND id_producto = ?;
+
+insertStockProductos:
+INSERT OR REPLACE INTO stock_productos (
+    id_ubicacion,
+    id_producto,
+    cantidad,
+    updated_at
+)
+VALUES (?, ?, ?, ?);
+
+updateStockProductos:
+UPDATE stock_productos
+SET
+    cantidad = ?,
+    updated_at = ?
+WHERE id_ubicacion = ? AND id_producto = ?;
+
+deleteStockProductos:
+DELETE FROM stock_productos WHERE id_ubicacion = ? AND id_producto = ?;
+
+findByProductoId:
+SELECT SUM(cantidad) FROM stock_productos
+WHERE id_producto = ?;
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM stock_productos;

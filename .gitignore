@@ -1,0 +1,43 @@
+# IDEs y sistema operativo
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Configuracion local y secretos
+.env
+.env.*
+!.env.example
+**/application-local.properties
+**/application-local.yml
+**/application-local.yaml
+
+# Java, Maven, Gradle y Kotlin
+**/target/
+**/build/
+Backend/effyFlow/bin/
+**/.gradle/
+**/.kotlin/
+*.class
+
+# Node / frontend
+**/node_modules/
+**/dist/
+
+# Datos locales, respaldos y artefactos grandes
+.pg-local-data/
+.pg-local-respaldo-*.sql
+BD/respaldo.sql
+*.zip
+*.msi
+*.exe
+
+# Logs y archivos temporales
+*.log
+*.tmp
+*.bak
+
+# Copias locales de metadatos Git
+.git-backup/
+*.bundle

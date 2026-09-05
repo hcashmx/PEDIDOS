@@ -1,0 +1,38 @@
+CREATE TABLE precios_producto (
+    producto_id INTEGER NOT NULL,
+    tipo_precio_id INTEGER NOT NULL,
+    precio REAL,
+    updated_at TEXT,
+    PRIMARY KEY (producto_id, tipo_precio_id)
+);
+
+selectAll:
+SELECT * FROM precios_producto;
+
+findById:
+SELECT * FROM precios_producto WHERE producto_id = ? AND tipo_precio_id = ?;
+
+insertPreciosProducto:
+INSERT OR REPLACE INTO precios_producto (
+    producto_id,
+    tipo_precio_id,
+    precio,
+    updated_at
+)
+VALUES (?, ?, ?, ?);
+
+updatePreciosProducto:
+UPDATE precios_producto
+SET
+    precio = ?,
+    updated_at = ?
+WHERE producto_id = ? AND tipo_precio_id = ?;
+
+deletePreciosProducto:
+DELETE FROM precios_producto WHERE producto_id = ? AND tipo_precio_id = ?;
+
+getPrecio:
+SELECT * FROM precios_producto
+WHERE producto_id = ? AND tipo_precio_id = ?;
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM precios_producto;

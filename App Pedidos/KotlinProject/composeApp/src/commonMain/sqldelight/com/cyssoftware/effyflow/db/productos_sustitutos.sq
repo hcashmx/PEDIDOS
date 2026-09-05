@@ -1,0 +1,53 @@
+CREATE TABLE productos_sustitutos (
+    id_producto_sustituto INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    producto_id INTEGER NOT NULL,
+    producto_sustituto_id INTEGER NOT NULL,
+    prioridad INTEGER,
+    motivo TEXT,
+    vigente INTEGER ,
+    observaciones TEXT,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM productos_sustitutos;
+
+findById:
+SELECT * FROM productos_sustitutos WHERE id_producto_sustituto = ?;
+
+insertProductosSustitutos:
+INSERT OR REPLACE INTO productos_sustitutos (
+    id_producto_sustituto,
+    producto_id,
+    producto_sustituto_id,
+    prioridad,
+    motivo,
+    vigente,
+    observaciones,
+    updated_at
+)
+VALUES (?,?, ?, ?, ?, ?, ?, ?);
+
+updateProductosSustitutos:
+UPDATE productos_sustitutos
+SET
+    producto_id = ?,
+    producto_sustituto_id = ?,
+    prioridad = ?,
+    motivo = ?,
+    vigente = ?,
+    observaciones = ?,
+    updated_at = ?
+WHERE id_producto_sustituto = ?;
+
+deleteProductosSustitutos:
+DELETE FROM productos_sustitutos WHERE id_producto_sustituto = ?;
+
+findByProductoId:
+SELECT P.*
+FROM productos_sustitutos PS
+JOIN productos P ON P.id_producto = PS.producto_sustituto_id
+WHERE PS.producto_id = ? AND PS.vigente = 1 AND P.activo = 1;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM productos_sustitutos;

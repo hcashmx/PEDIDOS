@@ -1,0 +1,56 @@
+CREATE TABLE impuestos (
+    id_impuesto INTEGER NOT NULL PRIMARY KEY,
+    nombre TEXT,
+    tipo_aplicacion TEXT,
+    tipo_factor TEXT,
+    tasa_o_cuota REAL,
+    unidad_cuota TEXT,
+    c_impuesto TEXT,
+    nombre_sat TEXT,
+    signo INTEGER,
+    activo INTEGER ,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM impuestos;
+
+findById:
+SELECT * FROM impuestos WHERE id_impuesto = ?;
+
+insertImpuestos:
+INSERT OR REPLACE INTO impuestos (
+    id_impuesto,
+    nombre,
+    tipo_aplicacion,
+    tipo_factor,
+    tasa_o_cuota,
+    unidad_cuota,
+    c_impuesto,
+    nombre_sat,
+    signo,
+    activo,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateImpuestos:
+UPDATE impuestos
+SET
+    nombre = ?,
+    tipo_aplicacion = ?,
+    tipo_factor = ?,
+    tasa_o_cuota = ?,
+    unidad_cuota = ?,
+    c_impuesto = ?,
+    nombre_sat = ?,
+    signo = ?,
+    activo = ?,
+    updated_at = ?
+WHERE id_impuesto = ?;
+
+deleteImpuestos:
+DELETE FROM impuestos WHERE id_impuesto = ?;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM impuestos;

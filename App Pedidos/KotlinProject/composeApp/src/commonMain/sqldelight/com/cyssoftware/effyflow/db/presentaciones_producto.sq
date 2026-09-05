@@ -1,0 +1,48 @@
+CREATE TABLE presentaciones_producto (
+    id_presentacion INTEGER NOT NULL PRIMARY KEY,
+    id_producto INTEGER NOT NULL,
+    id_unidad INTEGER NOT NULL,
+    descripcion TEXT,
+    factor_conversion REAL,
+    cantidad_base REAL,
+    es_unidad_venta INTEGER,
+    es_predeterminada INTEGER,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM presentaciones_producto;
+
+findById:
+SELECT * FROM presentaciones_producto WHERE id_presentacion = ?;
+
+getPresentacionVentaPorProducto:
+SELECT *
+FROM presentaciones_producto
+WHERE id_producto = ?
+  AND (COALESCE(es_predeterminada, 0) = 1 OR COALESCE(es_unidad_venta, 0) = 1)
+ORDER BY
+    COALESCE(es_predeterminada, 0) DESC,
+    COALESCE(es_unidad_venta, 0) DESC,
+    id_presentacion ASC
+LIMIT 1;
+
+insertPresentacionesProducto:
+INSERT OR REPLACE INTO presentaciones_producto (
+    id_presentacion,
+    id_producto,
+    id_unidad,
+    descripcion,
+    factor_conversion,
+    cantidad_base,
+    es_unidad_venta,
+    es_predeterminada,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deletePresentacionesProducto:
+DELETE FROM presentaciones_producto WHERE id_presentacion = ?;
+
+getMaxUpdatedAt:
+SELECT MAX(updated_at) AS max_updated_at FROM presentaciones_producto;

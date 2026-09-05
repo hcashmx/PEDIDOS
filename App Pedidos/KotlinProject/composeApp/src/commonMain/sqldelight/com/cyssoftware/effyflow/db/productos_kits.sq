@@ -1,0 +1,33 @@
+CREATE TABLE productos_kits (
+    id_kit_detalle INTEGER NOT NULL PRIMARY KEY,
+    id_producto_kit INTEGER NOT NULL,
+    id_producto_componente INTEGER NOT NULL,
+    cantidad REAL NOT NULL,
+    orden INTEGER NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+-- Obtener componentes de un kit específico
+getComponentesByKit:
+SELECT * FROM productos_kits WHERE id_producto_kit = ? ORDER BY orden ASC;
+
+-- Insertar o actualizar (UPSERT)
+insertProductosKits:
+INSERT OR REPLACE INTO productos_kits (
+    id_kit_detalle,
+    id_producto_kit,
+    id_producto_componente,
+    cantidad,
+    orden,
+    created_at,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- Para la sincronización incremental
+getMaxUpdatedAt:
+SELECT MAX(updated_at) AS max_updated_at FROM productos_kits;
+
+deleteAllProductosKits:
+DELETE FROM productos_kits;

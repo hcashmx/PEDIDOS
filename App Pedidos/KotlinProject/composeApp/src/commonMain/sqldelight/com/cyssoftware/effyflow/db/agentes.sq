@@ -1,0 +1,32 @@
+CREATE TABLE agentes (
+    id_agente INTEGER NOT NULL PRIMARY KEY,
+    nombre TEXT,
+    id_usuario INTEGER,
+    tipo_agente_id INTEGER,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM agentes;
+
+findById:
+SELECT * FROM agentes WHERE id_agente = ?;
+
+insertAgentes:
+INSERT OR REPLACE INTO agentes (id_agente, nombre, id_usuario, tipo_agente_id, updated_at)
+VALUES (?, ?, ?, ?, ?);
+
+updateAgentes:
+UPDATE agentes
+SET nombre = ?, id_usuario = ?, tipo_agente_id = ?, updated_at = ?
+WHERE id_agente = ?;
+
+deleteAgentes:
+DELETE FROM agentes WHERE id_agente = ?;
+
+
+findByUsuarioId:
+SELECT * FROM agentes WHERE id_usuario = ?;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM agentes;

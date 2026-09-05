@@ -1,0 +1,43 @@
+CREATE TABLE series_folios_usuarios (
+    serie_id INTEGER NOT NULL,
+    usuario_id INTEGER NOT NULL,
+    puede_usar INTEGER DEFAULT 1,
+    updated_at TEXT,
+    PRIMARY KEY (serie_id, usuario_id)
+);
+
+selectAll:
+SELECT * FROM series_folios_usuarios;
+
+findById:
+SELECT * FROM series_folios_usuarios WHERE serie_id = ? AND usuario_id = ?;
+
+insertSeriesFoliosUsuarios:
+INSERT OR REPLACE INTO series_folios_usuarios (
+    serie_id,
+    usuario_id,
+    puede_usar,
+    updated_at
+)
+VALUES (?, ?, ?, ?);
+
+updateSeriesFoliosUsuarios:
+UPDATE series_folios_usuarios
+SET
+    puede_usar = ?,
+    updated_at = ?
+WHERE serie_id = ? AND usuario_id = ?;
+
+deleteSeriesFoliosUsuarios:
+DELETE FROM series_folios_usuarios WHERE serie_id = ? AND usuario_id = ?;
+
+selectSeriesPorUsuario:
+SELECT sf.*
+FROM series_folios sf
+JOIN series_folios_usuarios sfu ON sfu.serie_id = sf.id_serie
+WHERE sfu.usuario_id = ?
+  AND UPPER(sf.tipo_serie) = 'PEDIDO'
+  AND sfu.puede_usar = 1
+  AND sf.activa = 1;
+
+ getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM series_folios_usuarios;

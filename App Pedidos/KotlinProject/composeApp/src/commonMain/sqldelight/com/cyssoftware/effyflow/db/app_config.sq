@@ -1,0 +1,14 @@
+CREATE TABLE app_config (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+getValue:
+SELECT value FROM app_config WHERE key = ?;
+
+upsertValue:
+INSERT OR REPLACE INTO app_config (key, value)
+VALUES (?, ?);
+
+deleteValue:
+DELETE FROM app_config WHERE key = ?;

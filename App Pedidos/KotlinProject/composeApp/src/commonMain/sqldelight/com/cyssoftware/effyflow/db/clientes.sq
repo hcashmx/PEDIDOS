@@ -1,0 +1,118 @@
+
+
+CREATE TABLE clientes (
+    id_cliente INTEGER NOT NULL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    rfc TEXT,
+    razon_social TEXT,
+    email TEXT,
+    telefono TEXT,
+    direccion TEXT,
+    codigo_postal TEXT,
+    localidad TEXT,
+    municipio TEXT,
+    estado TEXT,
+    pais TEXT,
+    uso_cfdi TEXT,
+    metodo_pago_sat TEXT,
+    forma_pago_sat INTEGER,
+    activo INTEGER ,
+    numero_precio_id INTEGER,
+    limite_credito INTEGER,
+    credito_bloqueado INTEGER,
+    motivo_bloqueo_credito TEXT,
+    fecha_bloqueo_credito TEXT,
+    agente_id INTEGER,
+    tipo_clente_id INTEGER,
+    ruta_id INTEGER,
+    plazo INTEGER,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM clientes;
+
+findById:
+SELECT * FROM clientes WHERE id_cliente = ?;
+
+insertClientes:
+INSERT OR REPLACE INTO clientes (
+    id_cliente,
+    nombre,
+    rfc,
+    razon_social,
+    email,
+    telefono,
+    direccion,
+    codigo_postal,
+    localidad,
+    municipio,
+    estado,
+    pais,
+    uso_cfdi,
+    metodo_pago_sat,
+    forma_pago_sat,
+    activo,
+    numero_precio_id,
+    limite_credito,
+    credito_bloqueado,
+    motivo_bloqueo_credito,
+    fecha_bloqueo_credito,
+    agente_id,
+    tipo_clente_id,
+    ruta_id,
+    plazo,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateClientes:
+UPDATE clientes
+SET
+    nombre = ?,
+    rfc = ?,
+    razon_social = ?,
+    email = ?,
+    telefono = ?,
+    direccion = ?,
+    codigo_postal = ?,
+    localidad = ?,
+    municipio = ?,
+    estado = ?,
+    pais = ?,
+    uso_cfdi = ?,
+    metodo_pago_sat = ?,
+    forma_pago_sat = ?,
+    activo = ?,
+    numero_precio_id = ?,
+    limite_credito = ?,
+    credito_bloqueado = ?,
+    motivo_bloqueo_credito = ?,
+    fecha_bloqueo_credito = ?,
+    agente_id = ?,
+    tipo_clente_id = ?,
+    ruta_id = ?,
+    plazo = ?,
+    updated_at = ?
+WHERE id_cliente = ?;
+
+deleteClientes:
+DELETE FROM clientes WHERE id_cliente = ?;
+
+search:
+SELECT * FROM clientes
+WHERE (nombre LIKE '%' || ? || '%' OR rfc LIKE '%' || ? || '%')
+AND activo = 1;
+
+getAllActivosByAgente:
+SELECT * FROM clientes
+WHERE agente_id = ?
+AND activo = 1;
+
+searchByAgente:
+SELECT * FROM clientes
+WHERE agente_id = ?
+AND activo = 1
+AND (nombre LIKE '%' || ? || '%' OR rfc LIKE '%' || ? || '%');
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM clientes;

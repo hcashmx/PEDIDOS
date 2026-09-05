@@ -1,0 +1,44 @@
+CREATE TABLE users (
+    id INTEGER NOT NULL PRIMARY KEY,
+    nombre TEXT,
+    email TEXT,
+    pass TEXT,
+    roles TEXT,
+    status TEXT,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM users;
+
+findById:
+SELECT * FROM users WHERE id = ?;
+
+insertUsers:
+INSERT OR REPLACE INTO users (
+    id,
+    nombre,
+    email,
+    pass,
+    roles,
+    status,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+updateUsers:
+UPDATE users
+SET
+    nombre = ?,
+    email = ?,
+    pass = ?,
+    roles = ?,
+    status = ?,
+    updated_at = ?
+WHERE id = ?;
+
+deleteUsers:
+DELETE FROM users WHERE id = ?;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM users;

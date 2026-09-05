@@ -1,0 +1,32 @@
+CREATE TABLE marcas (
+    id_marca INTEGER NOT NULL PRIMARY KEY,
+    nombre TEXT,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM marcas;
+
+findById:
+SELECT * FROM marcas WHERE id_marca = ?;
+
+insertMarcas:
+INSERT OR REPLACE INTO marcas (
+    id_marca,
+    nombre,
+    updated_at
+)
+VALUES (?, ?, ?);
+
+updateMarcas:
+UPDATE marcas
+SET
+    nombre = ?,
+    updated_at = ?
+WHERE id_marca = ?;
+
+deleteMarcas:
+DELETE FROM marcas WHERE id_marca = ?;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM marcas;

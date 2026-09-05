@@ -1,0 +1,239 @@
+CREATE TABLE productos (
+    id_producto INTEGER NOT NULL PRIMARY KEY,
+    codigo TEXT,
+    nombre TEXT,
+    descripcion TEXT,
+    activo INTEGER,
+    id_categoria INTEGER,
+    upc TEXT,
+    largo REAL,
+    ancho REAL,
+    alto REAL,
+    grueso REAL,
+    peso REAL,
+    tipo TEXT,
+    clave_sat TEXT,
+    id_unidad INTEGER,
+    costo_ultimo REAL,
+    costo_reposicion REAL,
+    costo_anterior REAL,
+    costo_promedio REAL,
+    descuento_max REAL,
+    tipo_articulo TEXT,
+    id_marca INTEGER,
+    id_medida INTEGER,
+    permite_negativo INTEGER,
+        inner_pack INTEGER,
+        master_pack INTEGER,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM productos;
+
+findById:
+SELECT * FROM productos WHERE id_producto = ?;
+
+insertProductos:
+INSERT OR REPLACE INTO productos (
+    id_producto,
+    codigo,
+    nombre,
+    descripcion,
+    activo,
+    id_categoria,
+    upc,
+    largo,
+    ancho,
+    alto,
+    grueso,
+    peso,
+    tipo,
+    clave_sat,
+    id_unidad,
+    costo_ultimo,
+    costo_reposicion,
+    costo_anterior,
+    costo_promedio,
+    descuento_max,
+    tipo_articulo,
+    id_marca,
+    id_medida,
+    permite_negativo, inner_pack, master_pack,
+    updated_at
+)
+VALUES (?, ?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateProductos:
+UPDATE productos
+SET
+    codigo = ?,
+    nombre = ?,
+    descripcion = ?,
+    activo = ?,
+    id_categoria = ?,
+    upc = ?,
+    largo = ?,
+    ancho = ?,
+    alto = ?,
+    grueso = ?,
+    peso = ?,
+    tipo = ?,
+    clave_sat = ?,
+    id_unidad = ?,
+    costo_ultimo = ?,
+    costo_reposicion = ?,
+    costo_anterior = ?,
+    costo_promedio = ?,
+    descuento_max = ?,
+    tipo_articulo = ?,
+    id_marca = ?,
+    id_medida = ?,
+    updated_at = ?
+WHERE id_producto = ?;
+
+deleteProductos:
+DELETE FROM productos WHERE id_producto = ?;
+
+search:
+SELECT * FROM productos
+WHERE (nombre LIKE '%' || ? || '%' OR codigo LIKE '%' || ? || '%')
+AND activo = 1;
+
+searchProductosConDetalle:
+SELECT
+    P.*,
+    M.nombre AS marcaNombre,
+    UM.nombre AS unidadNombre
+FROM productos P
+LEFT JOIN marcas M ON P.id_marca = M.id_marca
+LEFT JOIN unidades_medida UM ON P.id_unidad = UM.id_unidad
+WHERE (P.nombre LIKE '%' || ? || '%' OR P.codigo LIKE '%' || ? || '%')
+  AND P.activo = 1;
+
+
+getProductoDetalladoStockById:
+SELECT
+    P.id_producto,
+    P.codigo,
+    P.nombre,  -- <--- Asegúrate de que esta línea esté así
+    P.peso,
+    P.tipo,
+    M.nombre AS marcaNombre,
+    UM.nombre AS unidadNombre,
+    IFNULL((SELECT SUM(cantidad) FROM stock_productos WHERE id_producto = P.id_producto), 0.0) AS existenciaTotal
+FROM productos P
+LEFT JOIN marcas M ON P.id_marca = M.id_marca
+LEFT JOIN unidades_medida UM ON P.id_unidad = UM.id_unidad
+WHERE P.id_producto = :idProducto;
+
+getProductoDetalladoById:
+SELECT
+    P.id_producto,
+    P.codigo,
+    P.nombre,
+    P.peso,
+    P.inner_pack,
+    P.master_pack,
+    M.nombre AS marcaNombre,
+    UM.nombre AS unidadNombre,
+    IFNULL((SELECT SUM(cantidad) FROM stock_productos WHERE id_producto = P.id_producto), 0.0) AS existenciaTotal
+FROM productos P
+LEFT JOIN marcas M ON P.id_marca = M.id_marca
+LEFT JOIN unidades_medida UM ON P.id_unidad = UM.id_unidad
+WHERE P.id_producto = :idProducto;
+
+searchProductosConDetalleStock:
+SELECT
+    P.*,
+    M.nombre AS marcaNombre,
+    UM.nombre AS unidadNombre,
+    IFNULL(C.nombre_categoria, 'SIN CATEGORIA') AS categoriaNombre,
+    (
+            SELECT PP.precio
+            FROM precios_producto PP
+            WHERE PP.producto_id = P.id_producto
+            ORDER BY PP.tipo_precio_id ASC -- Opcional: ordenar para cierta consistencia (ej. por ID)
+            LIMIT 1
+        ) AS precioUnitario, -- Nuevo campo
+    SUM(SP.cantidad) AS existenciaTotal,
+    -- 🚨 CAMBIO APLICADO AQUÍ: IFNULL(Subconsulta, '') 🚨
+    IFNULL(
+        (
+            SELECT GROUP_CONCAT(I.nombre, ', ')
+            FROM productos_impuestos PI
+            INNER JOIN impuestos I ON PI.id_impuesto = I.id_impuesto
+            WHERE PI.id_producto = P.id_producto
+            ORDER BY PI.orden ASC
+        ),
+        '' -- Retorna una cadena vacía si GROUP_CONCAT resulta en NULL
+    ) AS impuestosNombres
+FROM productos P
+LEFT JOIN marcas M ON P.id_marca = M.id_marca
+LEFT JOIN unidades_medida UM ON P.id_unidad = UM.id_unidad
+LEFT JOIN categorias C ON P.id_categoria = C.id_categoria
+LEFT JOIN stock_productos SP ON P.id_producto = SP.id_producto
+WHERE (P.nombre LIKE '%' || ? || '%' OR P.codigo LIKE '%' || ? || '%')
+  AND P.activo = 1
+GROUP BY P.id_producto
+ORDER BY P.nombre ASC;
+-- 🔝 Obtener los 20 productos más comprados por un cliente (con marca y unidad)
+getTop20ByCliente:
+SELECT
+    P.*,
+    M.nombre AS marcaNombre,
+    UM.nombre AS unidadNombre,
+    SUM(DP.cantidad_solicitada) AS total_vendido
+FROM detalle_pedidos DP
+JOIN pedidos PED ON DP.pedido_id = PED.id_pedido
+JOIN productos P ON DP.producto_id = P.id_producto
+LEFT JOIN marcas M ON P.id_marca = M.id_marca
+LEFT JOIN unidades_medida UM ON P.id_unidad = UM.id_unidad
+WHERE PED.cliente_id = ?
+  AND P.activo = 1
+GROUP BY P.id_producto
+ORDER BY total_vendido DESC
+LIMIT 20;
+
+
+-- 🔝 Obtener los 20 productos más comprados por un cliente (con marca y unidad, stock, precio y detalles completos)
+getTop20ByClienteComplete:
+SELECT
+    P.*,
+    M.nombre AS marcaNombre,
+    UM.nombre AS unidadNombre,
+    IFNULL(C.nombre_categoria, 'SIN CATEGORIA') AS categoriaNombre, -- 🟢 Agregado
+    (
+            SELECT PP.precio
+            FROM precios_producto PP
+            WHERE PP.producto_id = P.id_producto
+            ORDER BY PP.tipo_precio_id ASC
+            LIMIT 1
+        ) AS precioUnitario, -- 🟢 Agregado: Precio del producto
+    SUM(SP.cantidad) AS existenciaTotal, -- 🟢 Agregado: Stock total
+    IFNULL(
+        (
+            SELECT GROUP_CONCAT(I.nombre, ', ')
+            FROM productos_impuestos PI
+            INNER JOIN impuestos I ON PI.id_impuesto = I.id_impuesto
+            WHERE PI.id_producto = P.id_producto
+            ORDER BY PI.orden ASC
+        ),
+        ''
+    ) AS impuestosNombres, -- 🟢 Agregado: Nombres de impuestos
+    SUM(DP.cantidad_solicitada) AS total_vendido
+FROM detalle_pedidos DP
+JOIN pedidos PED ON DP.pedido_id = PED.id_pedido
+JOIN productos P ON DP.producto_id = P.id_producto
+LEFT JOIN marcas M ON P.id_marca = M.id_marca
+LEFT JOIN unidades_medida UM ON P.id_unidad = UM.id_unidad
+LEFT JOIN categorias C ON P.id_categoria = C.id_categoria -- 🟢 Join para categoría
+LEFT JOIN stock_productos SP ON P.id_producto = SP.id_producto -- 🟢 Join para stock
+WHERE PED.cliente_id = ?
+AND P.activo = 1
+GROUP BY P.id_producto
+ORDER BY total_vendido DESC
+LIMIT 20;
+
+getMaxUpdatedAt:
+SELECT MAX(updated_at) AS max_updated_at FROM productos;

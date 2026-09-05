@@ -1,0 +1,57 @@
+CREATE TABLE productos_impuestos (
+    id_producto INTEGER NOT NULL,
+    id_impuesto INTEGER NOT NULL,
+    orden INTEGER,
+    base_incluye_impuestos_previos INTEGER,
+    aplica_descuentos_en_base INTEGER,
+    multiplicador_unidades REAL,
+    updated_at TEXT,
+    PRIMARY KEY (id_producto, id_impuesto)
+);
+
+selectAll:
+SELECT * FROM productos_impuestos;
+
+findById:
+SELECT * FROM productos_impuestos WHERE id_producto = ? AND id_impuesto = ?;
+
+insertProductosImpuestos:
+INSERT OR REPLACE INTO productos_impuestos (
+    id_producto,
+    id_impuesto,
+    orden,
+    base_incluye_impuestos_previos,
+    aplica_descuentos_en_base,
+    multiplicador_unidades,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+updateProductosImpuestos:
+UPDATE productos_impuestos
+SET
+    orden = ?,
+    base_incluye_impuestos_previos = ?,
+    aplica_descuentos_en_base = ?,
+    multiplicador_unidades = ?,
+    updated_at = ?
+WHERE id_producto = ? AND id_impuesto = ?;
+
+deleteProductosImpuestos:
+DELETE FROM productos_impuestos WHERE id_producto = ? AND id_impuesto = ?;
+
+
+getImpuestosParaProducto:
+SELECT
+    I.*,
+    PI.orden,
+    PI.base_incluye_impuestos_previos,
+    PI.aplica_descuentos_en_base
+FROM impuestos I
+JOIN productos_impuestos PI ON I.id_impuesto = PI.id_impuesto
+WHERE PI.id_producto = ?
+  AND I.activo = 1
+ORDER BY PI.orden;
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM productos_impuestos;
+

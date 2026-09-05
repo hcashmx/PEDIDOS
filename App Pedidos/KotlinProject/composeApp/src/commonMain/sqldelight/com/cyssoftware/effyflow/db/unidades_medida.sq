@@ -1,0 +1,38 @@
+CREATE TABLE unidades_medida (
+    id_unidad INTEGER NOT NULL PRIMARY KEY,
+    nombre TEXT,
+    clave_sat TEXT,
+    abreviatura TEXT,
+    updated_at TEXT
+);
+
+selectAll:
+SELECT * FROM unidades_medida;
+
+findById:
+SELECT * FROM unidades_medida WHERE id_unidad = ?;
+
+insertUnidadesMedida:
+INSERT OR REPLACE INTO unidades_medida (
+    id_unidad,
+    nombre,
+    clave_sat,
+    abreviatura,
+    updated_at
+)
+VALUES (?, ?, ?, ?, ?);
+
+updateUnidadesMedida:
+UPDATE unidades_medida
+SET
+    nombre = ?,
+    clave_sat = ?,
+    abreviatura = ?,
+    updated_at = ?
+WHERE id_unidad = ?;
+
+deleteUnidadesMedida:
+DELETE FROM unidades_medida WHERE id_unidad = ?;
+
+
+getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM unidades_medida;
