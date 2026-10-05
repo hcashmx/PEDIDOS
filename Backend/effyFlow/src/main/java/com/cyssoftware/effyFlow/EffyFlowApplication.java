@@ -28,7 +28,7 @@ public class EffyFlowApplication {
 	@PostConstruct
 	public void checkEncoding() {
 	    String enc = jdbcTemplate.queryForObject("SHOW client_encoding", String.class);
-	    System.out.println("🧠 CLIENT_ENCODING desde Spring: " + enc);
+	    org.slf4j.LoggerFactory.getLogger(EffyFlowApplication.class).debug("CLIENT_ENCODING: {}", enc);
 	}
 	
 

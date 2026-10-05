@@ -42,7 +42,7 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return !"INACTIVO".equalsIgnoreCase(user.getStatus());
+        return !Boolean.FALSE.equals(user.getActive()) && !"INACTIVO".equalsIgnoreCase(user.getStatus());
     }
 
     @Override

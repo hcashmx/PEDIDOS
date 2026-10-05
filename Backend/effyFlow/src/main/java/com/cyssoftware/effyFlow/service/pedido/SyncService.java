@@ -20,12 +20,12 @@ public class SyncService {
 
     public Map<String, Object> obtenerCatalogo(String nombre, LocalDateTime updatedAfter, int page, int size) {
         int safePage = Math.max(0, page);
-        int safeSize = Math.max(1, size);
+        int safeSize = Math.min(500, Math.max(1, size));
 
         CatalogQuery catalog = catalogQuery(nombre.toLowerCase());
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("limit", safeSize)
-                .addValue("offset", safePage * safeSize);
+                .addValue("offset", (long) safePage * safeSize);
 
         String where = "";
         if (updatedAfter != null && catalog.incremental()) {

@@ -186,7 +186,9 @@ public class PedidoService {
         response.put("folio", pedido.getFolio());
         response.put("serieId", pedido.getSerieId());
         response.put("uuidLocal", uuidLocal);
-        response.put("estado", "RECIBIDO");
+        response.put("estadoId", pedido.getEstadoId());
+        response.put("estado", jdbcTemplate.queryForObject(
+                "SELECT estado FROM public.pedido_estados WHERE id_estado = ?", String.class, pedido.getEstadoId()));
         response.put("idempotent", idempotent);
         response.put("mensaje", idempotent ? "Pedido recibido previamente." : "Pedido guardado correctamente.");
         return response;

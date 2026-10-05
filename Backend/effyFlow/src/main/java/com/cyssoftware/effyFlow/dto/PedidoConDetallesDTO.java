@@ -10,6 +10,8 @@ import lombok.Data;
 
 public class PedidoConDetallesDTO {
 
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.NotNull(message = "pedido es obligatorio")
     @JsonProperty("pedido")
     private PedidoDTO pedido;
 

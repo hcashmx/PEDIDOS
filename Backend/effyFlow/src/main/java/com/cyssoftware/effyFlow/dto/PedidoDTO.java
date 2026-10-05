@@ -64,7 +64,10 @@ public class PedidoDTO {
 	    @JsonProperty("total_facturado")
 	    private BigDecimal totalFacturado;
 
-	    @JsonProperty("uuid_local")
+	    @NotBlank(message = "uuid_local es obligatorio")
+         @Size(max = 36, message = "uuid_local debe tener como máximo 36 caracteres")
+         @Pattern(regexp = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", message = "uuid_local debe ser un UUID canónico")
+         @JsonProperty("uuid_local")
 	    private String uuidLocal;
 
 	    @JsonProperty("ubicacion_id")
