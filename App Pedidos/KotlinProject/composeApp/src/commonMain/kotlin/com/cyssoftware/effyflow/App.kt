@@ -181,7 +181,7 @@ fun App() {
                     saveTokens = { newAccessToken, newRefreshToken ->
                         // ✅ ESTO actualiza la copia local (en Room, DataStore, etc.)
                         // Esta llamada es fundamental para que el nuevo token persista.
-                       // loginRepository.updateTokens(newAccessToken, newRefreshToken)
+                       loginRepository.updateTokens(newAccessToken, newRefreshToken)
                     },
                     onSyncComplete = {
                         triggerGlobalRefresh()

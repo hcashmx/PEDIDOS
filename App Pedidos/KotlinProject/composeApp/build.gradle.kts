@@ -80,6 +80,9 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
+        jvmTest.dependencies {
+            implementation("io.ktor:ktor-client-mock:2.3.11")
+        }
         jvmMain.dependencies {
             implementation("org.apache.pdfbox:pdfbox:3.0.6")
             implementation("org.apache.pdfbox:pdfbox-tools:3.0.6")

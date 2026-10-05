@@ -1,8 +1,8 @@
 package com.cyssoftware.effyflow.login.data
 import com.cyssoftware.effyflow.db.DatabaseProvider
+import com.cyssoftware.effyflow.db.EffyDatabase
 import com.cyssoftware.effyflow.login.data.model.LoginResponse
-class AuthLocalDataSource() {
-    val db= DatabaseProvider.database
+class AuthLocalDataSource(val db: EffyDatabase = DatabaseProvider.database) {
     fun saveSession(email: String, pass: String, data: LoginResponse) {
 
 
@@ -16,6 +16,14 @@ class AuthLocalDataSource() {
             usuarioName = data.nombre,
             usuarioId = data.usuarioId?.toLong() // SQLDelight usa Long para INTEGER
         )
+    }
+
+    fun updateTokens(accessToken: String, refreshToken: String) {
+        require(accessToken.isNotBlank() && refreshToken.isNotBlank()) { "Tokens must not be blank" }
+        db.transaction {
+            check(db.authQueries.getSession().executeAsOneOrNull() != null) { "No active session to refresh" }
+            db.authQueries.updateTokens(accessToken = accessToken, refreshToken = refreshToken)
+        }
     }
 
     fun getSession(): LoginResponse? {

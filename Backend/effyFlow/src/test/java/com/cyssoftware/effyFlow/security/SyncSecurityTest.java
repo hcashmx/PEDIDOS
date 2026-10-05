@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(properties = {"app.jwt.secret=test-only-secret-0123456789-abcdef-0123456789", "logging.level.root=WARN"})
 @ContextConfiguration(classes = {SecurityConfig.class, WebConfig.class, JwtTokenProvider.class,
         JwtAuthenticationFilter.class, LoginController.class, HealthController.class,
-        PedidoController.class, SyncController.class, GlobalExceptionHandler.class})
+        PedidoController.class, PedidoEstadosController.class, SyncController.class, GlobalExceptionHandler.class})
 class SyncSecurityTest {
     @Autowired MockMvc mvc;
     @Autowired JwtTokenProvider tokens;
@@ -32,11 +32,29 @@ class SyncSecurityTest {
     @MockitoBean LoginService login;
     @MockitoBean PedidoService pedidos;
     @MockitoBean SyncService sync;
+    @MockitoBean PedidoEstadosService estados;
     static final String VALID = "{\"pedido\":{\"uuid_local\":\"12345678-1234-1234-1234-123456789abc\"},\"detalles\":[]}";
     String access() {
         when(users.loadUserByUsername("user")).thenReturn(User.withUsername("user").password("unused")
                 .authorities("SINCRONIZAR_DATOS").build());
         return tokens.generateAccessToken("user");
+    }
+    @Test void stateFeedRequiresAccessBearer() throws Exception {
+        mvc.perform(get("/api/sync/pedidos/estados")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/sync/pedidos/estados").header("Authorization", "Bearer " + tokens.generateRefreshToken("user")))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/other")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(estados);
+    }
+    @Test void stateFeedAcceptsAccessAndReturnsMinimalEventContract() throws Exception {
+        when(estados.obtener(10, null, 500)).thenReturn(new com.cyssoftware.effyFlow.dto.PedidoEstadosBatch(
+                11, 11, false, java.util.List.of(new com.cyssoftware.effyFlow.dto.PedidoEstadosBatch.Evento(
+                11, 90, null, 2, "TEST_STATE_2", "2026-10-01 12:00:00+00"))));
+        mvc.perform(get("/api/sync/pedidos/estados").param("afterId", "10").header("Authorization", "Bearer " + access()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.lastId").value(11))
+                .andExpect(jsonPath("$.data[0].uuidLocal").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].estadoId").value(2))
+                .andExpect(jsonPath("$.data[0].estado").value("TEST_STATE_2"));
     }
     @Test void publicEndpointsReachControllers() throws Exception {
         when(login.login(any(), any())).thenReturn(Map.of("accessToken", "test"));

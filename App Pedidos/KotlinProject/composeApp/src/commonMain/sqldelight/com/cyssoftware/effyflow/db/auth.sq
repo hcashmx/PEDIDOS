@@ -21,3 +21,8 @@ SELECT * FROM UserSession WHERE id = 1;
 -- Borrar sesión (Logout)
 clearSession:
 DELETE FROM UserSession;
+-- Refresh only the tokens, preserving the login/session metadata.
+updateTokens:
+UPDATE UserSession
+SET accessToken = :accessToken, refreshToken = :refreshToken
+WHERE id = 1;

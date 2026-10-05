@@ -35,6 +35,10 @@ class LoginRepository() { // ⬅️ Inyectamos la DB aquí
         }
     }
 
+    fun updateTokens(accessToken: String, refreshToken: String) {
+        localDataSource.updateTokens(accessToken, refreshToken)
+    }
+
     fun getLastEmail(): String? {
         return localDataSource.getCachedEmail()
     }

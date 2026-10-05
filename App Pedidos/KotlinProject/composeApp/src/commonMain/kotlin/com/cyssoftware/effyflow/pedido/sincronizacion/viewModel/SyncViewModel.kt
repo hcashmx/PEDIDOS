@@ -14,6 +14,7 @@ import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import java.time.LocalDateTime
 import io.ktor.client.plugins.auth.*
@@ -47,45 +48,19 @@ class SyncViewModel(
             })
         }
         // 🚀 PLUGIN DE AUTENTICACIÓN
-        install(Auth) {
-            bearer {
-                // 1. Carga inicial de tokens
-                loadTokens {
-                    val (accessToken, refreshToken) = getToken()
-                    if (accessToken != null && refreshToken != null) {
-                        BearerTokens(accessToken, refreshToken)
-                    } else {
-                        null
-                    }
-                }
-                // 2. Lógica para refrescar tokens ante un error 401
-                refreshTokens {
-                    val oldRefreshToken = oldTokens?.refreshToken
-                    if (oldRefreshToken == null) {
-                        // No hay refresh token para usar, forzar re-login
-                        throw AuthenticationException("No refresh token available.")
-                    }
-
-                    val refreshUrl = "${configRepository.requireBaseUrl()}/api/auth/refresh"
-                    val response: HttpResponse = client.post(refreshUrl) {
-                        contentType(ContentType.Application.Json)
-                        // Usamos el refreshToken anterior para solicitar uno nuevo
-                        setBody(mapOf("refreshToken" to oldRefreshToken))
-                    }
-
-                    if (response.status == HttpStatusCode.OK) {
-                        val newTokens = response.body<RefreshTokenResponse>()
-                        // 3. 💾 MUY IMPORTANTE: Guardar los nuevos tokens de forma persistente
-                        saveTokens(newTokens.accessToken, newTokens.refreshToken)
-                        // Retornar los nuevos tokens para que Ktor los use en el reintento
-                        BearerTokens(newTokens.accessToken, newTokens.refreshToken)
-                    } else {
-                        // Si falla el refresh, forzar re-login
-                        throw AuthenticationException("Failed to refresh token: ${response.status}")
-                    }
-                }
-            }
+        configureSyncBearer(getToken, saveTokens) {
+            "${configRepository.requireBaseUrl()}/api/auth/refresh"
         }
+    }
+
+    private val pedidoEstadosSync by lazy {
+        PedidoEstadosSync(database) { after, until ->
+            val endpoint = (basePedidosUrl ?: "${configRepository.requireBaseUrl()}/api/sync/pedidos").trimEnd('/') + "/estados"
+            cargarPedidoEstados(client, endpoint, after, until)
+        }
+    }
+    companion object {
+        private val syncMutex = kotlinx.coroutines.sync.Mutex()
     }
 
     var isLoading by mutableStateOf(false)
@@ -170,11 +145,13 @@ class SyncViewModel(
 
     fun syncAllCatalogs() {
         scope.launch {
+            syncMutex.withLock {
             try {
                 isLoading = true
                 message = "Iniciando sincronización..."
                 progress = 0f
 
+                pedidoEstadosSync.sincronizar()
                 val totalCatalogs = catalogs.size
 
                 for ((index, catalog) in catalogs.withIndex()) {
@@ -196,6 +173,7 @@ class SyncViewModel(
             } finally {
                 isLoading = false
                 onSyncComplete()
+            }
             }
         }
     }
@@ -858,7 +836,6 @@ class SyncViewModel(
     private fun savePedidosData(data: JsonArray) {
         // Asume que tienes un 'pedidosQueries' configurado para tu tabla local
         val pedidosFolioSerieQueries = database.folioSeries_pedidosQueries
-        val pedidosQueries = database.pedidosQueries
 
         // 🚀 Envuelto en una transacción para inserciones masivas más rápidas
         pedidosFolioSerieQueries.transaction {
@@ -870,8 +847,6 @@ class SyncViewModel(
                     val serieId = item.getLong("serieId")
                     val folio = item.getLong("folio")
                     val updatedAt = item.getString("updatedAt")
-                    val pedidoId = item.getLong("idPedido")
-                    val estadoId = item.getLong("estadoId")
                     // ⚠️ Validación mínima: todos los campos de la proyección son necesarios.
                     if (serieId == null || folio == null || updatedAt == null) {
                         println("❌ Error: serieId, folio o updatedAt es nulo, omitiendo registro: $item")
@@ -886,12 +861,8 @@ class SyncViewModel(
                         folio = folio,
                         updated_at = updatedAt
                     )
-                    if (pedidoId != null && estadoId != null) {
-                        pedidosQueries.updatePedidoSyncServer(
-                            estado_id = estadoId,
-                            id_pedido = pedidoId
-                        )
-                    }
+                    // This catalog maintains only the auxiliary series/folio cache.
+                    // Commercial states are reconciled exclusively by PedidoEstadosSync.
 
                 } catch (e: Exception) {
                     // Captura errores por si un registro falla
@@ -909,6 +880,7 @@ class SyncViewModel(
 
     fun syncPedidosPendientes() {
         scope.launch {
+            syncMutex.withLock {
             val errores = mutableListOf<String>()
             try {
                 isLoading = true
@@ -917,6 +889,7 @@ class SyncViewModel(
 
                 val pedidos = database.pedidosQueries.getPedidosPendientesSync().executeAsList()
                 if (pedidos.isEmpty()) {
+                    pedidoEstadosSync.sincronizar()
                     message = "✅ No hay pedidos pendientes por sincronizar"
                     return@launch
                 }
@@ -1046,6 +1019,7 @@ class SyncViewModel(
                     count++
                     progress = count.toFloat() / total.toFloat()
                 }
+                pedidoEstadosSync.sincronizar()
                 if (errores.isNotEmpty()) {
                     message = errores.joinToString("\n")
                 } else {
@@ -1058,6 +1032,7 @@ class SyncViewModel(
             } finally {
                 isLoading = false
                 onSyncComplete()
+            }
             }
         }
     }

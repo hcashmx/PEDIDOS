@@ -179,3 +179,16 @@ WHERE P.id_pedido = ?;
 
 
 getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM pedidos;
+
+-- Remote IDs never refer to the local autoincrement key.
+findByUuidLocal:
+SELECT * FROM pedidos WHERE uuid_local = :uuidLocal;
+
+findByRemoteId:
+SELECT * FROM pedidos WHERE uuid_server = :remoteId;
+
+applyRemoteState:
+UPDATE pedidos
+SET estado_id = :estadoId,
+    uuid_server = COALESCE(NULLIF(uuid_server, ''), :remoteId)
+WHERE id_pedido = :localId;
