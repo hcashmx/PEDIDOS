@@ -1,0 +1,10 @@
+# Only Maven build inputs are sent to Docker.
+**
+!pom.xml
+!mvnw
+!.mvn/
+!.mvn/**
+!src/
+!src/**
+!Dockerfile
+!.dockerignore
