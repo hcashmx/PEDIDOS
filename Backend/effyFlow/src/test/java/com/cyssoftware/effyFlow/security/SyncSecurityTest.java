@@ -39,6 +39,23 @@ class SyncSecurityTest {
                 .authorities("SINCRONIZAR_DATOS").build());
         return tokens.generateAccessToken("user");
     }
+    @Test void vendedorCanDownloadUserCatalogWithItsOwnIdentity() throws Exception {
+        var vendedor = new com.cyssoftware.effyFlow.entity.Usuario();
+        vendedor.setEmail("seller"); vendedor.setRoles("VENDEDOR"); vendedor.setActive(true);
+        when(users.loadUserByUsername("seller")).thenReturn(new CustomUserDetails(vendedor));
+        when(sync.obtenerCatalogo(eq("usuarios"), isNull(), eq(0), eq(500))).thenAnswer(invocation -> {
+            var authentication = SecurityContextHolder.getContext().getAuthentication();
+            assertEquals("seller", authentication.getName());
+            assertTrue(authentication.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equals("SINCRONIZAR_DATOS")));
+            assertFalse(authentication.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equals("VER_PEDIDOS_OTROS")));
+            return Map.of("data", java.util.List.of());
+        });
+        mvc.perform(get("/api/sync/catalogos/usuarios").header("Authorization",
+                        "Bearer " + tokens.generateAccessToken("seller")))
+                .andExpect(status().isOk());
+    }
     @Test void stateFeedRequiresAccessBearer() throws Exception {
         mvc.perform(get("/api/sync/pedidos/estados")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/sync/pedidos/estados").header("Authorization", "Bearer " + tokens.generateRefreshToken("user")))

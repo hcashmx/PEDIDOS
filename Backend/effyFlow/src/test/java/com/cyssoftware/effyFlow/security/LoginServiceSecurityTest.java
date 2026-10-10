@@ -43,4 +43,28 @@ class LoginServiceSecurityTest {
         when(encoder.matches("password", u.getPassword())).thenReturn(true);
         assertThrows(BadCredentialsException.class, () -> service.login("user", "password"));
     }
+    @Test void vendedorCanLoginAndRefreshWithoutAdministrativePermissions() {
+        var u = user(); u.setRoles("VENDEDOR");
+        when(repo.findByEmail("user")).thenReturn(Optional.of(u));
+        when(encoder.matches("password", u.getPassword())).thenReturn(true);
+        var response = service.login("user", "password");
+        assertEquals("VENDEDOR", response.get("roles"));
+        assertTrue(tokens.validateAccessToken((String) response.get("accessToken")));
+        assertTrue(tokens.validateAccessToken((String) service.refresh(
+                (String) response.get("refreshToken")).get("accessToken")));
+        assertEquals(Rol.AGENTE.getPermisos(), Rol.VENDEDOR.getPermisos());
+        assertFalse(Rol.VENDEDOR.getPermisos().contains(Permiso.VER_PEDIDOS_OTROS));
+        assertFalse(Rol.VENDEDOR.getPermisos().contains(Permiso.MODIFICAR_PLAZO_CLIENTE));
+    }
+    @Test void vendedorStillRejectsWrongPasswordAndDisabledAuthorization() {
+        var u = user(); u.setRoles("VENDEDOR");
+        when(repo.findByEmail("user")).thenReturn(Optional.of(u));
+        assertThrows(BadCredentialsException.class, () -> service.login("user", "wrong"));
+        when(encoder.matches("password", u.getPassword())).thenReturn(true);
+        u.setActive(false);
+        assertThrows(BadCredentialsException.class, () -> service.login("user", "password"));
+        assertThrows(BadCredentialsException.class, () -> service.refresh(tokens.generateRefreshToken("user")));
+        u.setActive(true); u.setStatus("INACTIVO");
+        assertThrows(BadCredentialsException.class, () -> service.login("user", "password"));
+    }
 }

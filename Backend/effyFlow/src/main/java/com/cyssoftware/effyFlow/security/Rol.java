@@ -5,6 +5,13 @@ import java.util.Set;
 
 public enum Rol {
 
+    // ERP names sellers VENDEDOR; retain the existing app agent permission set.
+    VENDEDOR(Set.of(
+            Permiso.VER_MODULO_PEDIDOS,
+            Permiso.CREAR_PEDIDO,
+            Permiso.SINCRONIZAR_DATOS
+    )),
+
     AGENTE(Set.of(
             Permiso.VER_MODULO_PEDIDOS,
             Permiso.CREAR_PEDIDO,
