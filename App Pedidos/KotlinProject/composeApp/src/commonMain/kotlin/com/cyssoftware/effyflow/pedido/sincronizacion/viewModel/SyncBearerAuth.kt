@@ -7,7 +7,9 @@ import io.ktor.client.plugins.auth.providers.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.*
-import javax.naming.AuthenticationException
+import kotlinx.serialization.json.*
+
+class SyncAuthenticationException(message: String) : Exception(message)
 
 internal fun HttpClientConfig<*>.configureSyncBearer(
     getToken: () -> Pair<String?, String?>,
@@ -27,10 +29,14 @@ internal fun HttpClientConfig<*>.configureSyncBearer(
                 }
                 // 2. Lógica para refrescar tokens ante un error 401
                 refreshTokens {
+                    val errorBody = runCatching { response.body<JsonObject>() }.getOrNull()
+                    if (errorBody?.get("origenError")?.jsonPrimitive?.contentOrNull == "ERP") {
+                        return@refreshTokens null
+                    }
                     val oldRefreshToken = oldTokens?.refreshToken
                     if (oldRefreshToken == null) {
                         // No hay refresh token para usar, forzar re-login
-                        throw AuthenticationException("No refresh token available.")
+                        throw SyncAuthenticationException("No refresh token available.")
                     }
 
                     val refreshUrl = refreshUrl()
@@ -49,7 +55,7 @@ internal fun HttpClientConfig<*>.configureSyncBearer(
                         BearerTokens(newTokens.accessToken, newTokens.refreshToken)
                     } else {
                         // Si falla el refresh, forzar re-login
-                        throw AuthenticationException("Failed to refresh token: ${response.status}")
+                        throw SyncAuthenticationException("Failed to refresh token: ${response.status}")
                     }
                 }
             }

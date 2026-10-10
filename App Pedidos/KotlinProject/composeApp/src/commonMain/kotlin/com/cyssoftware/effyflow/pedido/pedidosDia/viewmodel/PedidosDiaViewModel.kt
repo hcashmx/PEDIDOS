@@ -126,6 +126,13 @@ class PedidosDiaViewModel(
     /**
      * Se llama cuando el usuario presiona "Volver" en la pantalla de detalle.
      */
+    fun reintentarRevision() {
+        val pedido = _state.value.pedidoSeleccionado ?: return
+        com.cyssoftware.effyflow.db.DatabaseProvider.database.pedidosQueries.retryRevision(pedido.id_pedido)
+        cerrarDetalle()
+        applyFilters(_state.value.currentFilters)
+    }
+
     fun cerrarDetalle() {
         _state.update {
             it.copy(

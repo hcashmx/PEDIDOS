@@ -19,10 +19,9 @@ import com.cyssoftware.effyflow.pedido.nuevoPedido.viewmodel.TipoPedido
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.offsetAt
 
-class PedidoRepository {
-
-    private val db= DatabaseProvider.database
+class PedidoRepository(private val db: com.cyssoftware.effyflow.db.EffyDatabase = DatabaseProvider.database) {
 
     private val pedidosQueries = db.pedidosQueries
     private val detallePedidosQueries = db.detalle_pedidosQueries
@@ -195,11 +194,17 @@ class PedidoRepository {
         plazo: Long,
         observaciones: String,
         tipoDocumento: TipoDocumento,
-        ubicacion_id: Long?
+        ubicacion_id: Long?,
+        tipoVenta: TipoPedido = TipoPedido.NINGUNO
     ): Long? {
 
         val uuidLocal = uuid4().toString()
-        val fechaActual = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).toString()
+        require(tipoVenta == TipoPedido.CONTADO || tipoVenta == TipoPedido.CREDITO) {
+            "Selecciona tipo de venta CONTADO o CREDITO"
+        }
+        val instante = Clock.System.now()
+        val zona = TimeZone.currentSystemDefault()
+        val fechaActual = instante.toLocalDateTime(zona).toString() + zona.offsetAt(instante).toString()
         val totalPedido = lineas.sumOf { it.total }
         var nuevoPedidoId: Long? = null
         try {
@@ -250,6 +255,7 @@ class PedidoRepository {
 
 
                 nuevoPedidoId = pedidosQueries.lastInsertRowId().executeAsOne()
+                pedidosQueries.setTipoVenta(tipoVenta.name, nuevoPedidoId!!)
                 // 2. Insertar Detalles
                 lineas.forEach { linea ->
 

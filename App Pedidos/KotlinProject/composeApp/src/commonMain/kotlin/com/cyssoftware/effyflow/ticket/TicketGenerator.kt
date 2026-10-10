@@ -21,7 +21,7 @@ object TicketGenerator {
         sb.appendLine(center("*** PEDIDO ***", 42))
         sb.appendLine("------------------------------------------")
 
-        val folioCompleto = "${data.serie.codigo_serie}-${data.pedido.folio}"
+        val folioCompleto = "${data.pedido.serie_erp ?: data.serie.codigo_serie}-${data.pedido.folio}"
         sb.appendLine("Folio : $folioCompleto")
         sb.appendLine("Fecha : ${formatDate(data.pedido.fecha_creacion)}")
         sb.appendLine("------------------------------------------")
@@ -30,7 +30,10 @@ object TicketGenerator {
         sb.appendLine("Cliente : ${data.pedido.nombreCliente }")
         sb.appendLine("RFC     : ${data.pedido.rfcCliente ?: "N/A"}")
         sb.appendLine("Dir     : ${data.pedido.direccionCliente ?: "N/A"}")
-        sb.appendLine("Venta   : " + if (data.pedido.plazo == 0L) "Débito" else "Crédito Plazo(${data.pedido.plazo})")
+        sb.appendLine("Documento: ${data.pedido.tipo_documento}")
+        sb.appendLine("Venta   : ${data.pedido.tipo_venta ?: "Revisar captura antigua"}")
+        sb.appendLine("Estado  : ${data.pedido.synced_at}")
+        sb.appendLine("Renglones: referencia local")
         sb.appendLine("------------------------------------------")
 
         // ==== DETALLES ====
@@ -47,8 +50,9 @@ object TicketGenerator {
         sb.appendLine("------------------------------------------")
 
         // ==== TOTALES ====
-        val total = formatCurrency(data.pedido.total_solicitado ?: 0.0)
-        sb.appendLine("TOTAL".padEnd(25) + total.padStart(12))
+        val total = data.pedido.total_erp?.let { currencyFormatter.format(java.math.BigDecimal(it)) }
+            ?: formatCurrency(data.pedido.total_solicitado ?: 0.0)
+        sb.appendLine((if (data.pedido.total_erp != null) "TOTAL ERP" else "TOTAL REFERENCIA LOCAL").padEnd(25) + total.padStart(12))
         sb.appendLine("------------------------------------------")
 
         // ==== OBSERVACIONES ====

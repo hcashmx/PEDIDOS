@@ -848,6 +848,10 @@ fun onClienteSeleccionado(cliente: Clientes, tipo: TipoPedido, plazo: Long) {
             return
         }
 
+        if (s.tipoPedidoSeleccionado !in listOf(TipoPedido.CONTADO, TipoPedido.CREDITO)) {
+            _state.update { it.copy(error = "Selecciona tipo de venta CONTADO o CREDITO") }
+            return
+        }
         val idDireccion = s.direccionSeleccionada?.id
 
         viewModelScope.launch {
@@ -863,7 +867,8 @@ fun onClienteSeleccionado(cliente: Clientes, tipo: TipoPedido, plazo: Long) {
                 plazo = plazoParaGuardar,
                 observaciones = s.observacion,
                 tipoDocumento = s.tipoDocumento,
-                ubicacion_id = idDireccion
+                ubicacion_id = idDireccion,
+                tipoVenta = s.tipoPedidoSeleccionado
 
             )
 

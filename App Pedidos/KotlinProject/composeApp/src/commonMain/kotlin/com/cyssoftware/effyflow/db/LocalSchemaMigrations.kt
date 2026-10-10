@@ -51,5 +51,22 @@ object LocalSchemaMigrations {
                 // Existing databases already migrated have this column.
             }
         }
+
+        listOf(
+            "ALTER TABLE pedidos ADD COLUMN tipo_venta TEXT",
+            "ALTER TABLE pedidos ADD COLUMN payload_comercial TEXT",
+            "ALTER TABLE pedidos ADD COLUMN resultado_comercial TEXT",
+            "ALTER TABLE pedidos ADD COLUMN total_erp TEXT",
+            "ALTER TABLE pedidos ADD COLUMN serie_erp TEXT",
+            "ALTER TABLE pedidos ADD COLUMN fecha_recepcion TEXT",
+            "ALTER TABLE pedidos ADD COLUMN version_erp TEXT"
+        ).forEach { statement ->
+            try {
+                driver.execute(null, statement, 0)
+            } catch (e: Exception) {
+                // Never hide a failed commercial outbox migration (disk full, locks, etc.).
+                if (e.message?.contains("duplicate column name", ignoreCase = true) != true) throw e
+            }
+        }
     }
 }

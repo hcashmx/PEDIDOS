@@ -23,7 +23,14 @@ CREATE TABLE pedidos (
     synced_at TEXT,
     estado_id INTEGER,
     tipo_documento TEXT NOT NULL DEFAULT 'FACTURA', -- Puede ser 'FACTURA' o 'REMISION'
-     ubicacion_id INTEGER
+     ubicacion_id INTEGER,
+    tipo_venta TEXT,
+    payload_comercial TEXT,
+    resultado_comercial TEXT,
+    total_erp TEXT,
+    serie_erp TEXT,
+    fecha_recepcion TEXT,
+    version_erp TEXT
 );
 
 selectAll:
@@ -118,10 +125,10 @@ WHERE
     P.agente_ventas_id = :agenteId
 
     -- 2. Filtrar por Fecha INICIO (Si no es NULL, la fecha debe ser mayor o igual)
-    AND ( :fechaInicio IS NULL OR date(P.fecha_creacion) >= date(:fechaInicio) )
+    AND ( :fechaInicio IS NULL OR substr(P.fecha_creacion, 1, 10) >= :fechaInicio )
 
     -- 3. Filtrar por Fecha FIN (Si no es NULL, la fecha debe ser menor o igual)
-    AND ( :fechaFin IS NULL OR date(P.fecha_creacion) <= date(:fechaFin) )
+    AND ( :fechaFin IS NULL OR substr(P.fecha_creacion, 1, 10) <= :fechaFin )
 
     -- 4. Filtrar por Cliente
     AND ( :clienteNombre IS NULL OR C.nombre LIKE '%' || :clienteNombre || '%' )
@@ -147,7 +154,7 @@ SELECT COUNT(*) FROM pedidos WHERE serie_id = ? AND folio = ?;
 
 getPedidosPendientesSync:
 SELECT * FROM pedidos
-WHERE synced_at = 'PENDIENTE_SYNC'
+WHERE synced_at IN ('PENDIENTE_SYNC', 'ERROR_REINTENTABLE', 'SINCRONIZANDO')
 ORDER BY id_pedido ASC;
 
 updatePedidoSyncOk:
@@ -192,3 +199,24 @@ UPDATE pedidos
 SET estado_id = :estadoId,
     uuid_server = COALESCE(NULLIF(uuid_server, ''), :remoteId)
 WHERE id_pedido = :localId;
+
+setTipoVenta:
+UPDATE pedidos SET tipo_venta = :tipoVenta WHERE id_pedido = :idPedido;
+
+freezePayload:
+UPDATE pedidos SET payload_comercial = :payload WHERE id_pedido = :idPedido AND payload_comercial IS NULL;
+
+setResultadoComercial:
+UPDATE pedidos SET synced_at = :estatus, estado = :estatus, resultado_comercial = :resultado
+WHERE id_pedido = :idPedido;
+
+acceptComercial:
+UPDATE pedidos SET synced_at = 'SYNCHRONIZED', estado = 'SYNCHRONIZED',
+    uuid_server = :remoteId, estado_id = :estadoId, folio = :folio,
+    serie_id = :serieId, serie_erp = :serie, total_erp = :total,
+    fecha_recepcion = :fechaRecepcion, version_erp = :version, resultado_comercial = :resultado
+WHERE id_pedido = :idPedido;
+
+retryRevision:
+UPDATE pedidos SET synced_at = 'PENDIENTE_SYNC', estado = 'PENDIENTE_SYNC'
+WHERE id_pedido = :idPedido AND synced_at IN ('PENDIENTE_REVISION', 'ERROR_REINTENTABLE', 'ERROR_NO_REINTENTABLE');

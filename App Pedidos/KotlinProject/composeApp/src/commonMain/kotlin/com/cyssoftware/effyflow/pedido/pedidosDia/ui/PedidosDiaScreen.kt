@@ -20,6 +20,7 @@ import com.cyssoftware.effyflow.db.GetPedidosFiltrados
 import com.cyssoftware.effyflow.pedido.pedidosDia.viewmodel.PedidoFilters
 import com.cyssoftware.effyflow.pedido.pedidosDia.viewmodel.PedidosDiaViewModel
 import java.util.TimeZone
+import com.cyssoftware.effyflow.pedido.sincronizacion.viewModel.diferenciasComerciales
 
 // ------------------------------------------------------------------------------------------
 // PANTALLA PRINCIPAL
@@ -109,7 +110,8 @@ fun PedidosDiaScreen(
                 PedidoDetail(
                     pedido = state.pedidoSeleccionado!!,
                     detalle = state.detalleSeleccionado,
-                    onPrintTicket = onPrintTicket
+                    onPrintTicket = onPrintTicket,
+                    onRetry = { viewModel.reintentarRevision() }
                 )
             }
         }
@@ -178,6 +180,11 @@ fun statusFilterLabel(estatus: String?): String = when (estatus) {
     null, "" -> "Todos los estados"
     "PENDIENTE_SYNC" -> "Pendiente de sincronizar"
     "SYNCHRONIZED" -> "Sincronizado"
+    "SINCRONIZANDO" -> "Sincronizando"
+    "PENDIENTE_REVISION" -> "Pendiente de revision por diferencias"
+    "CONFLICTO" -> "Conflicto: revision manual"
+    "ERROR_REINTENTABLE" -> "Error reintentable"
+    "ERROR_NO_REINTENTABLE" -> "Error no reintentable"
     else -> estatus
 }
 @OptIn(ExperimentalMaterial3Api::class)
@@ -197,7 +204,12 @@ fun FilterDialog(
     val estatusOptions = listOf(
         "" to "Todos los estados",
         "PENDIENTE_SYNC" to "Sincronización pendiente", // Usar la clave PENDIENTE_SYNC para el estado Pendiente
-        "SYNCHRONIZED" to "Sincronizado"             // Usar la clave SYNCHRONIZED para el estado Sincronizado
+        "SYNCHRONIZED" to "Sincronizado",
+        "SINCRONIZANDO" to "Sincronizando",
+        "PENDIENTE_REVISION" to "Pendiente de revision por diferencias",
+        "CONFLICTO" to "Conflicto: revision manual",
+        "ERROR_REINTENTABLE" to "Error reintentable",
+        "ERROR_NO_REINTENTABLE" to "Error no reintentable"
     )
 
     // --- Nuevo estado para el Dropdown de Estatus ---
@@ -457,16 +469,12 @@ fun PedidosList(
                         trailingContent = {
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = "$${String.format("%.2f", pedido.total_solicitado ?: 0.0)}",
+                                    text = "$${String.format("%.2f", pedido.total_erp?.toDoubleOrNull() ?: pedido.total_solicitado ?: 0.0)}",
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    when (pedido.synced_at) {
-                                        "SYNCHRONIZED" -> "SINCRONIZADO"
-                                        "PENDIENTE_SYNC" -> "SINCRONIZACIÓN PENDIENTE"
-                                        else -> "N/A"
-                                    },
+                                    statusFilterLabel(pedido.synced_at),
                                     style = MaterialTheme.typography.labelSmall
                                 )
                                 Text(
@@ -495,6 +503,7 @@ fun PedidoDetail(
     pedido: GetPedidosFiltrados,
     detalle: List<GetDetalleConProductoPorPedidoId>,
     onPrintTicket: (Long) -> Unit,
+    onRetry: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -515,10 +524,19 @@ fun PedidoDetail(
                     Text("Cliente: ${pedido.nombreCliente}")
                     Text("Folio: ${pedido.folio}")
                     Text("Fecha: ${pedido.fecha_creacion}")
-                    Text("Estatus: ${pedido.synced_at}")
+                    Text("Estatus: ${statusFilterLabel(pedido.synced_at)}")
+                    Text("Documento: ${pedido.tipo_documento} | Tipo de venta: ${pedido.tipo_venta ?: "Revisar captura antigua"}")
+                    pedido.total_erp?.let { Text("Total definitivo ERP: $$it") }
+                    pedido.serie_erp?.let { Text("Serie ERP: $it | ID ERP: ${pedido.uuid_server}") }
+                    pedido.fecha_recepcion?.let { Text("Recepcion ERP: $it | Version: ${pedido.version_erp.orEmpty()}") }
+                    diferenciasComerciales(pedido.resultado_comercial).forEach { Text(it) }
+                    if (pedido.synced_at in listOf("PENDIENTE_REVISION", "ERROR_REINTENTABLE", "ERROR_NO_REINTENTABLE")) {
+                        Text("Revisar no acepta diferencias. Un reintento conserva toda la captura y consulta nuevamente al ERP.")
+                        OutlinedButton(onClick = onRetry) { Text("Preparar reintento posterior") }
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Total: $${pedido.total_solicitado}",
+                        "Total local de referencia: $${pedido.total_solicitado}",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )

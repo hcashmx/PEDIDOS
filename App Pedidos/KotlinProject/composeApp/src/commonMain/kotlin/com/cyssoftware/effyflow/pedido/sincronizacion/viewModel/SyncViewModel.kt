@@ -4,9 +4,6 @@ package com.cyssoftware.effyflow.pedido.sincronizacion.viewModel
 import androidx.compose.runtime.*
 import com.cyssoftware.effyflow.config.AppConfigRepository
 import com.cyssoftware.effyflow.db.DatabaseProvider.database
-import com.cyssoftware.effyflow.pedido.sincronizacion.dto.DetallePedidoDTO
-import com.cyssoftware.effyflow.pedido.sincronizacion.dto.PedidoConDetallesDTO
-import com.cyssoftware.effyflow.pedido.sincronizacion.dto.PedidoDTO
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -21,7 +18,6 @@ import io.ktor.client.plugins.auth.*
 import io.ktor.client.plugins.auth.providers.*
 import io.ktor.client.statement.HttpResponse
 import kotlinx.serialization.Serializable
-import javax.naming.AuthenticationException
 
 
 @Serializable
@@ -901,120 +897,17 @@ class SyncViewModel(
                     currentPedido = "Pedido ${pedido.folio}"
                     message = "Sincronizando $currentPedido..."
 
-                    val detalles = database.detalle_pedidosQueries
-                        .getDetallesPorPedido(pedido.id_pedido)
-                        .executeAsList()
-
-                    val pedidoDTO = PedidoDTO(
-                        id_pedido = pedido.id_pedido,
-                        cliente_id = pedido.cliente_id,
-                        agente_ventas_id = pedido.agente_ventas_id,
-                        usuario_creo_id = pedido.usuario_creo_id,
-                        usuario_autorizo_id = pedido.usuario_autorizo_id,
-                        serie_id = pedido.serie_id,
-                        folio = pedido.folio,
-                        fecha_creacion = pedido.fecha_creacion,
-                        fecha_autorizacion = pedido.fecha_autorizacion,
-                        fecha_envio_almacen = pedido.fecha_envio_almacen,
-                        fecha_cierre = pedido.fecha_cierre,
-                        plazo = pedido.plazo,
-                        estado = pedido.estado,
-                        observaciones = pedido.observaciones,
-                        venta_id = pedido.venta_id,
-                        total_solicitado = pedido.total_solicitado,
-                        total_autorizado = pedido.total_autorizado,
-                        total_facturado = pedido.total_facturado,
-                        uuid_local = pedido.uuid_local,
-                        uuid_server = pedido.uuid_server,
-                        updated_at = pedido.updated_at,
-                        synced_at = pedido.synced_at,
-                        tipo_documento = pedido.tipo_documento,
-                        ubicacion_id = pedido.ubicacion_id
-                    )
-
-                    val detallesDTO = detalles.map {
-                        DetallePedidoDTO(
-                            id_detalle_pedido = it.id_detalle_pedido,
-                            pedido_id = it.pedido_id,
-                            producto_id = it.producto_id,
-                            presentacion_id = it.presentacion_id,
-                            almacen_id = it.almacen_id,
-                            cantidad_solicitada = it.cantidad_solicitada,
-                            cantidad_autorizada = it.cantidad_autorizada,
-                            cantidad_reservada = it.cantidad_reservada,
-                            cantidad_surtida = it.cantidad_surtida,
-                            cantidad_cancelada = it.cantidad_cancelada,
-                            precio_unitario = it.precio_unitario,
-                            descuento = it.descuento,
-                            impuestos = it.impuestos,
-                            total_linea = it.total_linea,
-                            estado_linea = it.estado_linea,
-                            updated_at = it.updated_at,
-
-                            )
-                    }
-
-                    val payload = PedidoConDetallesDTO(
-                        pedido = pedidoDTO,
-                        detalles = detallesDTO
-                    )
-
-
-                    try {
+                    val cola = PedidoComercialSync(database)
+                    val resultado = cola.enviar(pedido.id_pedido) { payload ->
                         val pedidosUrl = basePedidosUrl ?: "${configRepository.requireBaseUrl()}/api/sync/pedidos"
                         val response = client.post(pedidosUrl) {
                             contentType(ContentType.Application.Json)
                             setBody(payload)
-                            println("✅ payload ${payload} ")
                         }
-
-                        if (response.status == HttpStatusCode.OK) {
-                            val responseBody: JsonObject = response.body()
-
-                            val uuidServerString = responseBody["uuidServer"]
-                                ?.jsonPrimitive
-                                ?.content
-
-                            val confirmafolio = responseBody["folio"]
-                                ?.jsonPrimitive
-                                ?.content
-
-                            val estadoCreditoServer: Long =
-                                responseBody["estadoId"]
-                                    ?.jsonPrimitive
-                                    ?.longOrNull ?: 0L
-
-                            if (uuidServerString != null && confirmafolio != null) {
-                                database.pedidosQueries.updatePedidoSyncOk(
-                                    idPedido = pedido.id_pedido,
-                                    folio = confirmafolio.toLong(),
-                                    estado_id = estadoCreditoServer,
-                                    uuidServer = uuidServerString
-                                )
-                                errores += "✅ Pedido ${pedido.id_pedido} sincronizado uuidServer: $uuidServerString Folio $confirmafolio"
-                            } else {
-                                errores += "Pedido ${pedido.folio}: Conflicto de ID"
-                            }
-                        } else {
-                            val errorBody = try {
-                                response.body<JsonObject>()["error"]?.jsonPrimitive?.content
-                            } catch (e: Exception) {
-                                null
-                            }
-
-                            val errorMsg = if (errorBody != null) {
-                                "❌ Pedido ${pedido.folio}: $errorBody"
-                            } else {
-                                "❌ Pedido ${pedido.folio}: Error HTTP ${response.status}"
-                            }
-
-                            errores += errorMsg
-                        }
-
-                    } catch (e: Exception) {
-                        println("❌ Error enviando pedido ${pedido.id_pedido}: ${e.message}")
-                        errores += "❌ Pedido ${pedido.folio}: ${e.message ?: "Error de red o servidor no disponible"}"
+                        val body = runCatching { response.body<JsonObject>() }.getOrDefault(JsonObject(emptyMap()))
+                        Pair(response.status.value, body)
                     }
+                    errores += "Pedido ${pedido.folio}: $resultado"
 
                     count++
                     progress = count.toFloat() / total.toFloat()

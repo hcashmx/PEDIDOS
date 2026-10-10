@@ -36,7 +36,8 @@ data class PedidoDTO(
     val updated_at: String?,
     val synced_at: String?,
     val tipo_documento: String?,
-    val ubicacion_id: Long?
+    val ubicacion_id: Long?,
+    val tipo_venta: String? = null
 )
 
 @Serializable

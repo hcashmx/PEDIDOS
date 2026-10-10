@@ -1871,6 +1871,8 @@ fun Step4_Resumen(
         // 3. TIPO DE DOCUMENTO
         item {
             TipoDocumentoSelection(state = state, viewModel = viewModel)
+            Text("Tipo de venta: ${state.tipoPedidoSeleccionado.name}")
+            Text("Importes locales de referencia. El ERP valida precios, descuentos, impuestos y total definitivo.")
         }
 
         // 4. SELECTOR DE VISTA (SEGMENTED BUTTON)
@@ -2506,7 +2508,7 @@ fun TipoDocumentoSelection(
                 onClick = { viewModel.setTipoDocumento(TipoDocumento.FACTURA) }
             )
             Spacer(Modifier.width(4.dp))
-            Text("Factura", style = MaterialTheme.typography.bodyLarge)
+            Text("FACTURA", style = MaterialTheme.typography.bodyLarge)
         }
 
         // Opción Remisión
@@ -2522,7 +2524,7 @@ fun TipoDocumentoSelection(
                 onClick = { viewModel.setTipoDocumento(TipoDocumento.REMISION) }
             )
             Spacer(Modifier.width(4.dp))
-            Text("Remisión", style = MaterialTheme.typography.bodyLarge)
+            Text("REMISION", style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
