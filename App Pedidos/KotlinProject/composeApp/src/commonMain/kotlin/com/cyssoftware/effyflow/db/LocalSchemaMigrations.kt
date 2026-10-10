@@ -61,7 +61,8 @@ object LocalSchemaMigrations {
             "ALTER TABLE pedidos ADD COLUMN total_erp TEXT",
             "ALTER TABLE pedidos ADD COLUMN serie_erp TEXT",
             "ALTER TABLE pedidos ADD COLUMN fecha_recepcion TEXT",
-            "ALTER TABLE pedidos ADD COLUMN version_erp TEXT"
+            "ALTER TABLE pedidos ADD COLUMN version_erp TEXT",
+            "ALTER TABLE pedidos ADD COLUMN estado_erp TEXT"
         ).forEach { statement ->
             try {
                 driver.execute(null, statement, 0)
@@ -70,6 +71,7 @@ object LocalSchemaMigrations {
                 if (e.message?.contains("duplicate column name", ignoreCase = true) != true) throw e
             }
         }
+        driver.execute(null, "CREATE TABLE IF NOT EXISTS pedido_estado_pendiente (historial_id INTEGER NOT NULL PRIMARY KEY, remote_id INTEGER NOT NULL, uuid_local TEXT, estado_id INTEGER NOT NULL, estado TEXT NOT NULL, fecha_cambio TEXT NOT NULL)", 0)
         migrateOfflineAuthentication(driver)
     }
 

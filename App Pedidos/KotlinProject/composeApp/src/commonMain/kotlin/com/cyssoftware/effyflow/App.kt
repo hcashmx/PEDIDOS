@@ -84,7 +84,7 @@ fun App() {
         }
     }
 
-    val pedidosDiaViewModel = remember(usuarioIdLogueado,globalDataRefreshKey ) {
+    val pedidosDiaViewModel = remember(usuarioIdLogueado) {
         usuarioIdLogueado?.let { id ->
             PedidosDiaViewModel(
                 pedidosDiaRepository = pedidosDiaRepository,
@@ -93,6 +93,23 @@ fun App() {
                 dispatcher = Dispatchers.Main
             )
         }
+    }
+
+    DisposableEffect(pedidosDiaViewModel) {
+        onDispose { pedidosDiaViewModel?.close() }
+    }
+
+    val sessionSyncViewModel = remember(usuarioIdLogueado) {
+        usuarioIdLogueado?.let { userId ->
+            SyncViewModel(
+                getToken = { loginRepository.getSyncTokensForUser(userId) },
+                saveTokens = { access, refresh -> loginRepository.updateTokensForUser(userId, access, refresh) },
+                onSyncComplete = { triggerGlobalRefresh() }
+            )
+        }
+    }
+    DisposableEffect(sessionSyncViewModel) {
+        onDispose { sessionSyncViewModel?.close() }
     }
 
     // 5. Pantalla de Carga (Splash)
@@ -187,26 +204,7 @@ fun App() {
         }
 
         composable("sync") {
-            val syncViewModel = remember(usuarioIdLogueado) {
-                val syncUserId = checkNotNull(usuarioIdLogueado)
-                SyncViewModel(
-                    // 1. FUNCIÓN PARA OBTENER LOS TOKENS
-                    getToken = {
-                        // Retorna un Pair<AccessToken, RefreshToken>
-                        loginRepository.getSyncTokensForUser(syncUserId)
-                    },
-
-                    // 2. FUNCIÓN PARA GUARDAR LOS TOKENS (La función que preguntaste)
-                    saveTokens = { newAccessToken, newRefreshToken ->
-                        // ✅ ESTO actualiza la copia local (en Room, DataStore, etc.)
-                        // Esta llamada es fundamental para que el nuevo token persista.
-                       loginRepository.updateTokensForUser(syncUserId, newAccessToken, newRefreshToken)
-                    },
-                    onSyncComplete = {
-                        triggerGlobalRefresh()
-                    }
-                )
-            }
+            val syncViewModel = sessionSyncViewModel ?: return@composable
             EffyFlowTheme {
                 SyncScreen(
                     viewModel = syncViewModel,
@@ -276,6 +274,9 @@ fun App() {
                 if (pedidosDiaViewModel != null) {
                     PedidosDiaScreen(
                         viewModel = pedidosDiaViewModel,
+                        onRefreshStates = { sessionSyncViewModel?.syncEstadosPedidos() },
+                        refreshingStates = sessionSyncViewModel?.isLoading == true,
+                        stateSyncMessage = sessionSyncViewModel?.message.orEmpty(),
                         onPrintTicket = { pedidoId ->
                             navController.navigate("ticket_screen/$pedidoId")
                         },

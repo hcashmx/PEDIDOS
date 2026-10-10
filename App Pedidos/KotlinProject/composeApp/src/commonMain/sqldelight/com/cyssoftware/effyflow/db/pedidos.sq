@@ -30,8 +30,27 @@ CREATE TABLE pedidos (
     total_erp TEXT,
     serie_erp TEXT,
     fecha_recepcion TEXT,
-    version_erp TEXT
+    version_erp TEXT,
+    estado_erp TEXT
 );
+
+CREATE TABLE pedido_estado_pendiente (
+    historial_id INTEGER NOT NULL PRIMARY KEY,
+    remote_id INTEGER NOT NULL,
+    uuid_local TEXT,
+    estado_id INTEGER NOT NULL,
+    estado TEXT NOT NULL,
+    fecha_cambio TEXT NOT NULL
+);
+
+savePendingState:
+INSERT OR IGNORE INTO pedido_estado_pendiente VALUES (?, ?, ?, ?, ?, ?);
+
+pendingStates:
+SELECT * FROM pedido_estado_pendiente ORDER BY historial_id;
+
+deletePendingState:
+DELETE FROM pedido_estado_pendiente WHERE historial_id = ?;
 
 selectAll:
 SELECT * FROM pedidos;
@@ -196,7 +215,7 @@ SELECT * FROM pedidos WHERE uuid_server = :remoteId;
 
 applyRemoteState:
 UPDATE pedidos
-SET estado_id = :estadoId,
+SET estado_id = :estadoId, estado_erp = :estado,
     uuid_server = COALESCE(NULLIF(uuid_server, ''), :remoteId)
 WHERE id_pedido = :localId;
 
@@ -212,7 +231,8 @@ WHERE id_pedido = :idPedido;
 
 acceptComercial:
 UPDATE pedidos SET synced_at = 'SYNCHRONIZED', estado = 'SYNCHRONIZED',
-    uuid_server = :remoteId, estado_id = :estadoId, folio = :folio,
+    uuid_server = :remoteId,
+    estado_id = CASE WHEN estado_erp IS NULL THEN :estadoId ELSE estado_id END, folio = :folio,
     serie_id = :serieId, serie_erp = :serie, total_erp = :total,
     fecha_recepcion = :fechaRecepcion, version_erp = :version, resultado_comercial = :resultado
 WHERE id_pedido = :idPedido;

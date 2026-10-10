@@ -32,6 +32,9 @@ fun PedidosDiaScreen(
     viewModel: PedidosDiaViewModel,
     onPrintTicket: (Long) -> Unit,
     onBack: () -> Unit,
+    onRefreshStates: (() -> Unit)? = null,
+    refreshingStates: Boolean = false,
+    stateSyncMessage: String = "",
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -63,6 +66,11 @@ fun PedidosDiaScreen(
                     }
                 },
                 actions = {
+                    onRefreshStates?.let { refresh ->
+                        TextButton(onClick = refresh, enabled = !refreshingStates) {
+                            Text(if (refreshingStates) "Actualizando..." else "Actualizar estados")
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -91,6 +99,10 @@ fun PedidosDiaScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
+            }
+            if (stateSyncMessage.isNotBlank()) {
+                Text(stateSyncMessage, style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = 8.dp))
             }
 
             // --- Lógica de Navegación (Lista / Detalle) ---
@@ -477,6 +489,9 @@ fun PedidosList(
                                     statusFilterLabel(pedido.synced_at),
                                     style = MaterialTheme.typography.labelSmall
                                 )
+                                pedido.estado_erp?.let {
+                                    Text("ERP: $it", style = MaterialTheme.typography.labelSmall)
+                                }
                                 Text(
                                     pedido.fecha_creacion ?: "N/A",
                                     style = MaterialTheme.typography.labelSmall
@@ -525,6 +540,7 @@ fun PedidoDetail(
                     Text("Folio: ${pedido.folio}")
                     Text("Fecha: ${pedido.fecha_creacion}")
                     Text("Estatus: ${statusFilterLabel(pedido.synced_at)}")
+                    Text("Estado ERP: ${pedido.estado_erp ?: "Pendiente de consultar"}")
                     Text("Documento: ${pedido.tipo_documento} | Tipo de venta: ${pedido.tipo_venta ?: "Revisar captura antigua"}")
                     pedido.total_erp?.let { Text("Total definitivo ERP: $$it") }
                     pedido.serie_erp?.let { Text("Serie ERP: $it | ID ERP: ${pedido.uuid_server}") }

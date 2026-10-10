@@ -14,6 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CancellationException
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -44,7 +48,9 @@ class PedidosDiaViewModel(
     private val usuarioId: Long,
     private val dispatcher: CoroutineDispatcher
 ) {
-    private val viewModelScope = CoroutineScope(dispatcher)
+    private val viewModelScope = CoroutineScope(SupervisorJob() + dispatcher)
+    private var observation: Job? = null
+    fun close() = viewModelScope.cancel()
 
     private val _state = MutableStateFlow(PedidosDiaState())
     val state: StateFlow<PedidosDiaState> = _state.asStateFlow()
@@ -84,19 +90,24 @@ class PedidosDiaViewModel(
      * Aplica un nuevo conjunto de filtros y recarga la lista de pedidos.
      */
     fun applyFilters(newFilters: PedidoFilters) {
-        viewModelScope.launch {
+        observation?.cancel()
+        observation = viewModelScope.launch {
             val currentAgenteId = agenteId ?: return@launch
 
             _state.update { it.copy(isLoading = true, currentFilters = newFilters) }
 
             try {
-                val pedidos = pedidosDiaRepository.getPedidosFiltrados(
-                    agenteId = currentAgenteId,
-                    filters = newFilters
-                )
-
-                _state.update { it.copy(isLoading = false, pedidos = pedidos, error = null) }
+                pedidosDiaRepository.observePedidosFiltrados(currentAgenteId, newFilters).collect { pedidos ->
+                    val selectedId = _state.value.pedidoSeleccionado?.id_pedido
+                    val selected = selectedId?.let { id ->
+                        pedidos.firstOrNull { it.id_pedido == id }
+                            ?: pedidosDiaRepository.getPedidosFiltrados(currentAgenteId, PedidoFilters()).firstOrNull { it.id_pedido == id }
+                    }
+                    _state.update { it.copy(isLoading = false, pedidos = pedidos, error = null,
+                        pedidoSeleccionado = selected) }
+                }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 _state.update { it.copy(isLoading = false, error = "Error al aplicar filtros: ${e.message}") }
             }
         }

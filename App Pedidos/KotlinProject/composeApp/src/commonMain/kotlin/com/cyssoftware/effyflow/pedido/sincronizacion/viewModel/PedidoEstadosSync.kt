@@ -50,6 +50,7 @@ class PedidoEstadosSync(
     fun lastId(): Long = db.app_configQueries.getValue(CURSOR_KEY).executeAsOneOrNull()?.toLong() ?: 0L
 
     suspend fun sincronizar() = mutex.withLock {
+        aplicarPendientes()
         val previous = lastId()
         drain(previous, null)
         // Identity allocation is not commit ordering. Replay the old prefix to recover
@@ -83,24 +84,41 @@ class PedidoEstadosSync(
         var applied = 0
         db.transaction {
             for (event in batch.data) {
-                val uuidMatch = event.uuidLocal?.takeIf { it.isNotBlank() }?.let {
-                    db.pedidosQueries.findByUuidLocal(it).executeAsOneOrNull()
-                }
-                val local = uuidMatch ?: db.pedidosQueries.findByRemoteId(event.idPedido.toString()).executeAsOneOrNull()
-                if (local == null) continue // Never create orders from this feed.
-                val remoteId = event.idPedido.toString()
-                check(local.uuid_server.isNullOrBlank() || local.uuid_server == remoteId) { "Conflicting remote order identity" }
-                val key = EVENT_KEY_PREFIX + local.id_pedido
-                val lastEvent = db.app_configQueries.getValue(key).executeAsOneOrNull()?.toLong() ?: 0L
-                if (event.historialId <= lastEvent) continue
-                db.pedidosQueries.applyRemoteState(
-                    estadoId = event.estadoId, remoteId = remoteId,
-                    localId = local.id_pedido)
-                db.app_configQueries.upsertValue(key, event.historialId.toString())
-                db.app_configQueries.upsertValue("pedidos_estados_fecha_" + local.id_pedido, event.fechaCambio)
-                applied++
+                db.pedidosQueries.savePendingState(event.historialId, event.idPedido, event.uuidLocal,
+                    event.estadoId, event.estado, event.fechaCambio)
             }
+            applied = applyPending()
             db.app_configQueries.upsertValue(CURSOR_KEY, maxOf(lastId(), batch.lastId).toString())
+        }
+        return applied
+    }
+
+    /** Unmatched events are durable before the download cursor is committed. */
+    fun aplicarPendientes(): Int = db.transactionWithResult { applyPending() }
+
+    private fun applyPending(): Int {
+        var applied = 0
+        for (event in db.pedidosQueries.pendingStates().executeAsList()) {
+            val uuidMatch = event.uuid_local?.takeIf { it.isNotBlank() }?.let {
+                db.pedidosQueries.findByUuidLocal(it).executeAsOneOrNull()
+            }
+            val local = uuidMatch ?: db.pedidosQueries.findByRemoteId(event.remote_id.toString()).executeAsOneOrNull()
+            if (local == null) continue // Keep the event, never create an order from this feed.
+            val remoteId = event.remote_id.toString()
+            check(local.uuid_server.isNullOrBlank() || local.uuid_server == remoteId) { "Conflicting remote order identity" }
+            val key = EVENT_KEY_PREFIX + local.id_pedido
+            val lastEvent = db.app_configQueries.getValue(key).executeAsOneOrNull()?.toLong() ?: 0L
+            if (event.historial_id < lastEvent || (event.historial_id == lastEvent && local.estado_erp != null)) {
+                db.pedidosQueries.deletePendingState(event.historial_id)
+                continue
+            }
+            db.pedidosQueries.applyRemoteState(
+                estadoId = event.estado_id, estado = event.estado, remoteId = remoteId,
+                localId = local.id_pedido)
+            db.app_configQueries.upsertValue(key, event.historial_id.toString())
+            db.app_configQueries.upsertValue("pedidos_estados_fecha_" + local.id_pedido, event.fecha_cambio)
+            db.pedidosQueries.deletePendingState(event.historial_id)
+            applied++
         }
         return applied
     }

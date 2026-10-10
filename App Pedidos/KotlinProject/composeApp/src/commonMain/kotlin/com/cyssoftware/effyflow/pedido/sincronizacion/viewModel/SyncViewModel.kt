@@ -65,6 +65,24 @@ class SyncViewModel(
     var currentCatalog by mutableStateOf("")
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    fun close() { scope.cancel(); client.close() }
+
+    fun syncEstadosPedidos() {
+        scope.launch {
+            syncMutex.withLock {
+                try {
+                    isLoading = true
+                    message = "Consultando estados ERP..."
+                    pedidoEstadosSync.sincronizar()
+                    message = "Estados ERP actualizados."
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    message = "No se pudieron actualizar los estados ERP. Se conserva el último estado conocido; verifica conexión y sesión de Sync."
+                } finally { isLoading = false }
+            }
+        }
+    }
 
     // 🔄 Lista de catálogos a sincronizar
     private val catalogs = listOf(
@@ -865,7 +883,7 @@ class SyncViewModel(
                 val pedidos = database.pedidosQueries.getPedidosPendientesSync().executeAsList()
                 if (pedidos.isEmpty()) {
                     pedidoEstadosSync.sincronizar()
-                    message = "✅ No hay pedidos pendientes por sincronizar"
+                    message = "✅ Estados ERP actualizados. No hay pedidos pendientes por sincronizar"
                     return@launch
                 }
 
