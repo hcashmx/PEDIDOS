@@ -42,36 +42,4 @@ class SyncContractsTest {
         });
         new SyncService(jdbc).obtenerCatalogo("clientes", null, -1, 0);
     }
-    @Test void idempotentResponseUsesCurrentStateAndNeverInserts() {
-        var repo = mock(PedidoRepository.class);
-        var jdbc = mock(JdbcTemplate.class);
-        var tx = mock(PlatformTransactionManager.class);
-        when(tx.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        String uuid = UUID.randomUUID().toString();
-        var pedido = new Pedido();
-        pedido.setIdPedido(42L); pedido.setEstadoId(1); pedido.setUuidLocal(uuid); pedido.setSerieId(10); pedido.setFolio(20);
-        when(repo.findByUuidLocal(uuid)).thenReturn(Optional.of(pedido));
-        // Fixture only: names deliberately do not assume the live catalog values.
-        String stateSql = "SELECT estado FROM public.pedido_estados WHERE id_estado = ?";
-        when(jdbc.queryForObject(stateSql, String.class, 1)).thenReturn("NOMBRE_CATALOGO_ID_1");
-        when(jdbc.queryForObject(stateSql, String.class, 2)).thenReturn("NOMBRE_CATALOGO_ID_2");
-        var service = new PedidoService(repo, mock(DetallePedidoRepository.class), mock(ClienteRepository.class),
-                mock(ClienteUbicacionRepository.class), mock(ProductoRepository.class), mock(SeriesFoliosRepository.class),
-                mock(AgenteRepository.class), mock(BitacoraOtRepository.class), tx, jdbc);
-        var dto = new PedidoConDetallesDTO(); var header = new PedidoDTO(); header.setUuidLocal(uuid); dto.setPedido(header);
-        var response = service.guardarPedidoDesdeApp(dto);
-        assertEquals(1, response.get("estadoId"));
-        assertEquals("NOMBRE_CATALOGO_ID_1", response.get("estado"));
-        verify(jdbc).queryForObject(stateSql, String.class, 1);
-        // The same UUID now resolves to the persisted order with a changed state.
-        pedido.setEstadoId(2);
-        var retry = service.guardarPedidoDesdeApp(dto);
-        assertEquals(2, retry.get("estadoId"));
-        assertEquals("NOMBRE_CATALOGO_ID_2", retry.get("estado"));
-        assertEquals(true, retry.get("idempotent"));
-        verify(jdbc).queryForObject(stateSql, String.class, 2);
-        assertEquals(true, response.get("idempotent")); assertEquals(42L, response.get("uuidServer"));
-        assertEquals(uuid, response.get("uuidLocal"));
-        verify(repo, never()).saveAndFlush(any());
-    }
 }

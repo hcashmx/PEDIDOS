@@ -1,0 +1,7 @@
+# Copy outside Git / supply environment variables. ERP b8a22e7 defaults to 8081.
+erp.base-url=${ERP_BASE_URL:http://localhost:8081}
+erp.token=${ERP_TOKEN:}
+erp.username=${ERP_USERNAME:}
+erp.password=${ERP_PASSWORD:}
+erp.connect-timeout-ms=${ERP_CONNECT_TIMEOUT_MS:3000}
+erp.read-timeout-ms=${ERP_READ_TIMEOUT_MS:15000}

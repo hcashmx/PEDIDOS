@@ -10,6 +10,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 
 public class PedidoDTO {
+    @JsonProperty("tipo_venta")
+    private String tipoVenta;
+    @JsonProperty("ruta_id")
+    private Long rutaId;
+    public String getTipoVenta() { return tipoVenta; }
+    public void setTipoVenta(String value) { tipoVenta = value; }
+    public Long getRutaId() { return rutaId; }
+    public void setRutaId(Long value) { rutaId = value; }
 	 @JsonProperty("id_pedido")
 	    private Long idPedido;
 
