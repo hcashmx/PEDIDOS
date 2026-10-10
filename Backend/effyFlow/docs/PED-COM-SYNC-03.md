@@ -1,6 +1,6 @@
 # PED-COM-SYNC-03 — Delegar captura móvil al ERP
 
-Desarrollo/UAT. Contrato auditado directamente en `C:\proyecto 2025\administrativo`, HEAD `b8a22e78ea00a5358889113cf06e872ee740f5e1`. Kotlin y ERP no se modificaron. Los cambios preexistentes en el Gradle Kotlin y el manual raíz permanecen fuera de esta tarea.
+Desarrollo/UAT. Contrato auditado directamente en `C:\proyecto 2025\administrativo`, commit `b8a22e78ea00a5358889113cf06e872ee740f5e1`. Kotlin no se modificó. En ERP se corrigió una incompatibilidad real del preview con promociones: `PedidoCapturaService.previsualizar` ahora abre transacción de sólo lectura para evitar LazyInitializationException al acceder a productos de la promoción. Los cambios preexistentes en el Gradle Kotlin y el manual raíz permanecen fuera de esta tarea.
 
 ## Arquitectura
 
@@ -121,26 +121,41 @@ Se reemplazan pruebas de la autoridad anterior (PedidoIdempotenciaFolioTest, Ped
 
 ## Validación y límites
 
-Pruebas focalizadas: PedidoErpAdapterTest, ErpPedidoClientTest, PedidoControllerContractTest, PedidoEstadosServiceTest, SyncContractsTest y SyncSecurityTest. Integración optativa: PedidoErpLocalIntegrationTest. Resultado automatizado final: **44 aprobadas, 0 fallos/errores, 1 integración omitida por entorno no habilitado**. `mvn clean ... package`: BUILD SUCCESS; también pasó `mvn -DskipTests package` y `git diff --check`. Un primer rerun encontró bytecode IDE stale (`Unresolved compilation problem`); clean recompiló con javac 25 y eliminó el problema.
+Pruebas focalizadas: PedidoErpAdapterTest, ErpPedidoClientTest, PedidoControllerContractTest, PedidoEstadosServiceTest, SyncContractsTest y SyncSecurityTest: **44 aprobadas**. PedidoErpLocalIntegrationTest: **1 prueba integral aprobada, sin omisión**, que recorre ocho escenarios comerciales y simula pérdida de respuesta después de commit. ERP: **18 pruebas focalizadas aprobadas** (PedidoCapturaServiceTest y PedidoCapturaControllerTest). Builds Maven y git diff --check aprobados. Clean recompiló con javac 25 después de detectar bytecode IDE stale.
 
 | Requisito | Evidencia actual |
 | --- | --- |
-| A aceptación | Mock de respuesta ERP, conserva total/folio/ID reales del body |
-| B/C/D documento y venta | Cuatro combinaciones FACTURA/REMISION × CONTADO/CREDITO |
-| E/F UUID retry/conflicto | Payload estable a HTTP, 409 preservado; unicidad PostgreSQL pendiente prueba real |
-| G fecha | Offset/hora conservados en JSON HTTP; fecha sin offset rechazada |
-| H/I volumen/promoción | Autoridad delegada, sin reglas Sync; catálogo real pendiente integración |
-| J diferencias | 409 sin ID confirmado y sin segundo create; no persistencia real pendiente |
-| K timeout/folio | Timeout mock y retry mismo UUID; no duplicación real pendiente |
-| L Kit | Un renglón, sin composición/reservas Sync; snapshot real pendiente |
-| M/N historial/feed | Tests feed existentes pasan; UUID RECIBIDO real pendiente integración |
+| A aceptación | HTTP Sync → ERP real → PostgreSQL; importes y folio ERP preservados |
+| B/C/D documento y venta | Cuatro combinaciones unitarias y FACTURA/REMISION, CONTADO/CREDITO en integración real |
+| E/F UUID retry/conflicto | Cada captura aceptada se repite: mismo ID/folio, count UUID=1; otra observación con mismo UUID devuelve 409 |
+| G fecha | JSON conserva offset/hora; persistencia ERP conserva instante a microsegundos; fecha sin offset rechazada |
+| H/I volumen/promoción | Precios esperados de catálogo comparados con preview, respuesta Sync y detalle PostgreSQL |
+| J diferencias | Referencia incompatible recibe 409 DIFERENCIAS_COMERCIALES; count UUID=0 en PostgreSQL |
+| K timeout/folio | Proxy retiene respuesta después de commit real; 504 reintentable; retry devuelve mismo ID/folio, count UUID=1 y siguiente_folio no avanza |
+| L Kit | Snapshot fiscal kit persistido por ERP; un producto comercial y reserva cero en RECIBIDO |
+| M/N historial/feed | Para cada aceptación el HTTP feed Sync devuelve RECIBIDO con mismo uuidLocal e idPedido |
 | O/P/Q 401/403/timeout | Tests HTTP y endpoint conservan estados, relogin acotado y retry técnico |
 
-No declarar integración comercial ni PASS_MANUAL: **PENDIENTE_UAT**. En esta sesión el ERP configurado en 8081 estaba detenido; 8080 pertenece a Tomcat8. Se compiló el ERP sin modificar código y se intentó iniciar el jar en 8081: terminó por `PlaceholderResolutionException`, falta `CFDI_ENCRYPTION_SECRET` para SmtpDynamicService. No se inventó una clave de cifrado. `.env.local` fue solicitado por el usuario y se creó con URL local/credenciales vacías; aún requiere usuario y contraseña reales. PostgreSQL escucha en 5432, pero la conexión técnica con la configuración disponible recibió rechazo de autenticación. No se proporcionaron fixtures comerciales. No se escribieron pedidos ni catálogos para simular evidencia ni se cambió código ERP para omitir la configuración requerida.
+**Integración automatizada local aprobada; UAT manual Kotlin permanece pendiente de PED-COM-SYNC-04.** ERP arrancó en localhost:8081 con su configuración habitual existente: `C:\administrativo-config\application-pac-sandbox.properties`, perfil `pac-sandbox`, conforme a `scripts/start-backend-sandbox.ps1`. Se usó spring.config.additional-location sobre ese archivo sin modificarlo. Login real usuario/contraseña desde `.env.local` del Sync entregó JWT. No se agregó CFDI_ENCRYPTION_SECRET al Sync, no se copiaron secretos ERP y no se realizaron operaciones CFDI/PAC.
 
-Para integración real arrancar ERP con su configuración externa completa, incluido CFDI_ENCRYPTION_SECRET. Habilitar `PED_COM_SYNC_03_ENABLED=true` en el entorno y proporcionar ERP_BASE_URL/autenticación y `ERP_TEST_DB_URL`, `ERP_TEST_DB_USERNAME`, `ERP_TEST_DB_PASSWORD` apuntando a la BD UAT compartida; el test permite leer estas últimas variables desde `.env.local`. Configurar `ERP_TEST_SCENARIOS_FILE` como ruta de JSON externo con claves `normal`, `volumen`, `promocion`, `volumen_excluye_promocion`, `presentacion_factor`, `descuento_permitido`, `descuento_rechazado`, `kit`. Cada valor contiene `request` (payload móvil con IDs/cantidades/fecha válidos), y `expected.precioUnitario`/`expected.promocionCodigo` según catálogo conocido, salvo descuento_rechazado. Las condiciones de catálogo deben estar preparadas por ERP; no inventar IDs/precios ni sembrar negocio por JDBC Sync. Incluir FACTURA/REMISION y CONTADO/CREDITO entre fixtures.
+PostgreSQL real: localhost:5432/prueba. JDBC sólo hizo lecturas. La corrida aprobada creó pedidos ERP 91–98, folios P01/38–45; quedaron como evidencia durable UAT. Los siete escenarios aceptados incluyen retry/conflicto, diferencias sin persistencia y feed con UUID; el octavo verifica recuperación tras timeout. Precio/total definitivos observados:
 
-El test real hace Kotlin-like HTTP a controller Sync mediante MockMvc → HTTP ERP autenticado → PostgreSQL → HTTP feed Sync, verifica total frente a preview/BD, UUID único, mismo folio al retry, conflicto con otra captura, diferencias sin pedido y snapshot de Kit. No cubre red/autenticación móvil Sync (cubierta separadamente por SyncSecurityTest). Crea pedidos UAT durables por ERP; no los borra ni ejecuta INSERT/UPDATE de negocio. La simulación de pérdida de respuesta después de commit necesita todavía una prueba UAT de red para K.
+| Escenario | Producto/presentación | Precio ERP | Total ERP | Pedido |
+| --- | --- | --- | --- | --- |
+| Normal, cantidad 1 | 4/base | 152.310000 | 176.679600 | 91 |
+| Volumen, cantidad 5 | 4/base | 145.000000 | 841.000000 | 92 |
+| Promoción 10%, cantidad 1 | 47/base | 1080.000000 | 1252.800000 | 93 |
+| Volumen sin promoción, cantidad 5 | 47/base | 1180.000000 | 6844.000000 | 94 |
+| Presentación factor 100 | 1/2 | 130.000000 | 150.800000 | 95 |
+| Descuento manual permitido 5% | 4/base | 152.310000 | 167.845620 | 96 |
+| Kit fuera de vigencia promoción | 47/base | 1200.000000 | 1392.000000 | 97 |
+| Timeout después de commit y recuperación | 4/base | 152.310000 | 176.679600 | 98 |
+
+Descuento manual 1% sobre volumen de producto 4: **409 comercial, sin pedido creado**. Los precios se resolvieron en ERP; Sync no aplica estas fórmulas. La promoción temporal 724 y la regla de volumen temporal 779 se crearon/activaron/desactivaron mediante API ERP; al terminar ambas quedaron inactivas. Los fixtures 723/778 del primer intento también quedaron inactivos. No se editaron reglas comerciales preexistentes ni se borraron Pedidos UAT. La integración reprodujo el fallo lazy del preview con una promoción activa y pasó después de la corrección mínima readOnly ERP.
+
+Para repetir la integración, arrancar ERP con su configuración local habitual mediante `scripts/start-backend-sandbox.ps1`; no copiar ni duplicar secretos/configuración CFDI al Sync. Habilitar `PED_COM_SYNC_03_ENABLED=true` en el entorno y proporcionar ERP_BASE_URL/autenticación y `ERP_TEST_DB_URL`, `ERP_TEST_DB_USERNAME`, `ERP_TEST_DB_PASSWORD` apuntando a la BD UAT compartida. Configurar `ERP_TEST_SCENARIOS_FILE` como ruta de JSON UTF-8 sin BOM externo con claves `normal`, `volumen`, `promocion`, `volumen_excluye_promocion`, `presentacion_factor`, `descuento_permitido`, `descuento_rechazado`, `kit`. Cada valor contiene `request` (payload móvil con IDs/cantidades/fecha válidos), y `expected.precioUnitario`/`expected.promocionCodigo` según catálogo conocido, salvo descuento_rechazado. Las condiciones de catálogo deben estar preparadas por ERP mediante sus APIs; no sembrar negocio por JDBC Sync. Incluir FACTURA/REMISION y CONTADO/CREDITO entre fixtures. Los fixtures temporales de esta corrida están desactivados; deben habilitarse explícitamente para repetirla y desactivarse al finalizar.
+
+El test real hace Kotlin-like HTTP a controller Sync mediante MockMvc → HTTP ERP autenticado → PostgreSQL → HTTP feed Sync, verifica total frente a preview/BD, UUID único, mismo folio al retry, conflicto con otra captura, diferencias sin pedido y snapshot de Kit. Un proxy HTTP local retiene la respuesta una vez que el ERP confirma commit y permite verificar recuperación después de timeout sin consumo extra de folio. No cubre red/autenticación móvil Sync (cubierta separadamente por SyncSecurityTest). Crea pedidos UAT durables por ERP; no los borra ni ejecuta INSERT/UPDATE de negocio.
 
 ```powershell
 mvn clean "-Dtest=PedidoErpAdapterTest,ErpPedidoClientTest,PedidoControllerContractTest,PedidoEstadosServiceTest,SyncContractsTest,SyncSecurityTest,PedidoErpLocalIntegrationTest" test
@@ -150,4 +165,4 @@ git diff --check
 mvn -Dtest=PedidoErpLocalIntegrationTest test
 ```
 
-Commit local previsto: `feat(pedidos): delegar captura móvil al ERP`. Sin push.
+Commits locales: Sync `584e027` (`feat(pedidos): delegar captura móvil al ERP`), más seguimiento de validación integral; ERP `6fc5390` (`fix(pedidos): conservar sesion en preview comercial`). Sin push. El commit ERP cambia únicamente una anotación readOnly; no altera DTO, reglas comerciales ni configuración CFDI.

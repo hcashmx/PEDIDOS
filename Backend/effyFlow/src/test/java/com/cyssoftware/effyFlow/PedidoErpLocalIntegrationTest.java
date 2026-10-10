@@ -53,7 +53,7 @@ class PedidoErpLocalIntegrationTest {
                 new PedidoEstadosController(new PedidoEstadosService(new NamedParameterJdbcTemplate(datasource)))).build();
         JsonNode cases = json.readTree(Files.readString(Path.of(required("ERP_TEST_SCENARIOS_FILE"))));
         assertTrue(cases.isObject());
-        Set<String> labels = Set.of("normal", "volumen", "promocion", "volumen_excluye_promocion",
+        var labels = java.util.List.of("normal", "volumen", "promocion", "volumen_excluye_promocion",
                 "presentacion_factor", "descuento_permitido", "descuento_rechazado", "kit");
         for (String label : labels) assertTrue(cases.has(label), "Falta fixture " + label);
         for (String label : labels) {
@@ -66,7 +66,9 @@ class PedidoErpLocalIntegrationTest {
             if (label.equals("descuento_rechazado")) {
                 var result = mvc.perform(post("/api/sync/pedidos").contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsBytes(dto))).andReturn().getResponse();
-                assertTrue(result.getStatus() == 400 || result.getStatus() == 422);
+                assertTrue(result.getStatus() == 400 || result.getStatus() == 422 || result.getStatus() == 409,
+                        "Descuento rechazado HTTP " + result.getStatus());
+                assertFalse(json.readTree(result.getContentAsString()).has("idPedido"));
                 assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM pedidos WHERE uuid_local=?", Long.class,
                         dto.getPedido().getUuidLocal()));
                 continue;
@@ -116,8 +118,8 @@ class PedidoErpLocalIntegrationTest {
                         .compareTo(calculated.path("total").decimalValue()));
             }
             if (label.equals("kit")) {
-                assertTrue(json.readTree(details.getFirst().get("impuestos").toString()).hasNonNull("kit"));
-                assertEquals(0, ((java.math.BigDecimal) details.getFirst().get("cantidad_reservada")).signum());
+                assertTrue(json.readTree(details.get(0).get("impuestos").toString()).hasNonNull("kit"));
+                assertEquals(0, ((java.math.BigDecimal) details.get(0).get("cantidad_reservada")).signum());
             }
             JsonNode feed = json.readTree(mvc.perform(get("/api/sync/pedidos/estados").param("afterId", Long.toString(after)))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -129,12 +131,67 @@ class PedidoErpLocalIntegrationTest {
             mvc.perform(post("/api/sync/pedidos").contentType(MediaType.APPLICATION_JSON)
                     .content(json.writeValueAsBytes(dto))).andExpect(status().isConflict());
             dto.getPedido().setUuidLocal(UUID.randomUUID().toString());
-            dto.getDetalles().getFirst().setPrecioUnitario(new java.math.BigDecimal("999999.99"));
+            dto.getDetalles().get(0).setPrecioUnitario(new java.math.BigDecimal("999999.99"));
             var diff = json.readTree(mvc.perform(post("/api/sync/pedidos").contentType(MediaType.APPLICATION_JSON)
                     .content(json.writeValueAsBytes(dto))).andExpect(status().isConflict()).andReturn().getResponse().getContentAsString());
             assertEquals("DIFERENCIAS_COMERCIALES", diff.path("resultado").asText());
             assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM pedidos WHERE uuid_local=?", Long.class,
                     dto.getPedido().getUuidLocal()));
+        }
+        // Lose the HTTP response only AFTER the real ERP has committed the order.
+        var timeoutDto = json.treeToValue(cases.path("normal").path("request"), PedidoConDetallesDTO.class);
+        timeoutDto.getPedido().setUuidLocal(UUID.randomUUID().toString());
+        var timeoutRequest = service.mapear(timeoutDto);
+        var committed = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var erpResponse = new java.util.concurrent.atomic.AtomicReference<JsonNode>();
+        var erpStatus = new java.util.concurrent.atomic.AtomicInteger();
+        var proxy = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        var executor = java.util.concurrent.Executors.newCachedThreadPool();
+        proxy.setExecutor(executor);
+        proxy.createContext("/api/", exchange -> {
+            try {
+                var forward = java.net.http.HttpRequest.newBuilder(java.net.URI.create(required("ERP_BASE_URL")
+                        + exchange.getRequestURI().getPath())).timeout(java.time.Duration.ofSeconds(30))
+                        .header("Content-Type", "application/json");
+                String bearer = exchange.getRequestHeaders().getFirst("Authorization");
+                if (bearer != null) forward.header("Authorization", bearer);
+                var actual = java.net.http.HttpClient.newHttpClient().send(forward.POST(
+                        java.net.http.HttpRequest.BodyPublishers.ofByteArray(exchange.getRequestBody().readAllBytes())).build(),
+                        java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+                if (exchange.getRequestURI().getPath().equals("/api/pedidos/captura")) {
+                    erpStatus.set(actual.statusCode()); erpResponse.set(json.readTree(actual.body()));
+                    committed.countDown();
+                    release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                } else {
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(actual.statusCode(), actual.body().length);
+                    exchange.getResponseBody().write(actual.body());
+                }
+            } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+            finally { exchange.close(); }
+        });
+        proxy.start();
+        try {
+            var factory = new org.springframework.http.client.JdkClientHttpRequestFactory();
+            factory.setReadTimeout(java.time.Duration.ofSeconds(1));
+            var delayed = new ErpPedidoClient(RestClient.builder().requestFactory(factory).build(),
+                    "http://127.0.0.1:" + proxy.getAddress().getPort(), "", env("ERP_USERNAME"), env("ERP_PASSWORD"));
+            var timeout = assertThrows(ErpCapturaException.class, () -> delayed.crear(timeoutRequest));
+            assertEquals(504, timeout.status()); assertEquals(true, timeout.respuesta().get("reintentable"));
+            assertTrue(committed.await(10, java.util.concurrent.TimeUnit.SECONDS), "ERP no terminó la captura");
+            assertEquals(200, erpStatus.get());
+            int nextFolio = jdbc.queryForObject("SELECT siguiente_folio FROM series_folios WHERE id_serie=?",
+                    Integer.class, timeoutRequest.serieId());
+            var recovered = client.crear(timeoutRequest);
+            assertEquals(erpResponse.get().path("idPedido"), recovered.path("idPedido"));
+            assertEquals(erpResponse.get().path("folio"), recovered.path("folio"));
+            assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM pedidos WHERE uuid_local=?", Long.class,
+                    timeoutRequest.uuidLocal()));
+            assertEquals(nextFolio, jdbc.queryForObject("SELECT siguiente_folio FROM series_folios WHERE id_serie=?",
+                    Integer.class, timeoutRequest.serieId()));
+        } finally {
+            release.countDown(); proxy.stop(0); executor.shutdownNow();
         }
     }
 }
