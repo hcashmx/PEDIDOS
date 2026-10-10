@@ -13,5 +13,6 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Integer>, JpaR
 	List<Usuario> findByUpdatedAtAfter(LocalDateTime updatedAt);
 	
 	Optional<Usuario> findByEmail(String email);
+	Optional<Usuario> findByUsername(String username);
 	boolean existsByEmailAndStatus(String email, String status);
 }

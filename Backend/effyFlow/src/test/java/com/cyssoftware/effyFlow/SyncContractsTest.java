@@ -15,6 +15,22 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 
 class SyncContractsTest {
+    @Test void usersAreAuthorizedFullSnapshotWithVersionAndNoPasswordFields() {
+        var jdbc = mock(NamedParameterJdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), any(MapSqlParameterSource.class), eq(Long.class))).thenReturn(0L);
+        when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            assertTrue(sql.contains("role IN ('AGENTE', 'VENDEDOR', 'ADMIN')"));
+            assertTrue(sql.contains("r.name IN ('AGENTE', 'VENDEDOR', 'ADMIN', 'super_admin')"));
+            assertTrue(sql.contains("credential_version AS \"credentialVersion\""));
+            assertTrue(sql.contains("AS active")); assertFalse(sql.contains(":updatedAfter"));
+            // Only projected fields leave the database; the inner SELECT is not serialized.
+            String projection = sql.substring(0, sql.indexOf("FROM"));
+            assertFalse(projection.contains("password")); assertFalse(projection.contains("remember_token"));
+            return List.of();
+        });
+        new SyncService(jdbc).obtenerCatalogo("usuarios", java.time.LocalDateTime.now(), 0, 500);
+    }
     @Test void corsAllowsOnlyConfiguredOrigins() {
         var config = new com.cyssoftware.effyFlow.config.WebConfig();
         var request = new org.springframework.mock.web.MockHttpServletRequest("GET", "/api/health");

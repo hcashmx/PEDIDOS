@@ -30,7 +30,14 @@ public class SyncController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             LocalDateTime updatedAfter,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "500") int size) {
+            @RequestParam(defaultValue = "500") int size,
+            org.springframework.security.core.Authentication authentication) {
+
+        if ("usuarios".equalsIgnoreCase(nombre) && (authentication == null ||
+                authentication.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("SINCRONIZAR_DATOS")) ||
+                !syncService.usuarioAutorizado(authentication.getName()))) {
+            throw new org.springframework.security.access.AccessDeniedException("Acceso denegado");
+        }
 
         Map<String, Object> result = syncService.obtenerCatalogo(nombre, updatedAfter, page, size);
         

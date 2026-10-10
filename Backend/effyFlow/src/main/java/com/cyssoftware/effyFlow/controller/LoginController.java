@@ -13,7 +13,8 @@ public class LoginController {
     private final LoginService loginService;
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, String> request) {
-        return ResponseEntity.ok(loginService.login(request.get("email"), request.get("password")));
+        return ResponseEntity.ok(loginService.login(
+                request.containsKey("username") ? request.get("username") : request.get("email"), request.get("password")));
     }
     @PostMapping("/refresh")
     public ResponseEntity<Map<String, Object>> refresh(@RequestBody Map<String, String> request) {

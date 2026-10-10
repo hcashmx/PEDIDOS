@@ -43,6 +43,7 @@ class SyncSecurityTest {
         var vendedor = new com.cyssoftware.effyFlow.entity.Usuario();
         vendedor.setEmail("seller"); vendedor.setRoles("VENDEDOR"); vendedor.setActive(true);
         when(users.loadUserByUsername("seller")).thenReturn(new CustomUserDetails(vendedor));
+        when(sync.usuarioAutorizado("seller")).thenReturn(true);
         when(sync.obtenerCatalogo(eq("usuarios"), isNull(), eq(0), eq(500))).thenAnswer(invocation -> {
             var authentication = SecurityContextHolder.getContext().getAuthentication();
             assertEquals("seller", authentication.getName());
@@ -55,6 +56,21 @@ class SyncSecurityTest {
         mvc.perform(get("/api/sync/catalogos/usuarios").header("Authorization",
                         "Bearer " + tokens.generateAccessToken("seller")))
                 .andExpect(status().isOk());
+    }
+    @Test void userWithoutSyncAuthorizationCannotProvisionCatalog() throws Exception {
+        when(users.loadUserByUsername("collector")).thenReturn(User.withUsername("collector").password("unused")
+                .authorities("VER_MODULO_PEDIDOS").build());
+        mvc.perform(get("/api/sync/catalogos/usuarios").header("Authorization", "Bearer " + tokens.generateAccessToken("collector")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(sync);
+    }
+    @Test void legacySellerRoleDoesNotAuthorizeUnrelatedErpProfile() throws Exception {
+        when(users.loadUserByUsername("doctor")).thenReturn(User.withUsername("doctor").password("unused")
+                .authorities("SINCRONIZAR_DATOS").build());
+        when(sync.usuarioAutorizado("doctor")).thenReturn(false);
+        mvc.perform(get("/api/sync/catalogos/usuarios").header("Authorization", "Bearer " + tokens.generateAccessToken("doctor")))
+                .andExpect(status().isForbidden());
+        verify(sync, never()).obtenerCatalogo(any(),any(),anyInt(),anyInt());
     }
     @Test void stateFeedRequiresAccessBearer() throws Exception {
         mvc.perform(get("/api/sync/pedidos/estados")).andExpect(status().isUnauthorized());

@@ -16,11 +16,12 @@ public class LoginService {
     private final UsuarioRepository usuarioRepo;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
+    private final com.cyssoftware.effyFlow.service.pedido.SyncService authorization;
     public Map<String, Object> login(String email, String password) {
         if (email == null || email.isBlank() || password == null || password.isBlank()) {
             throw new BadCredentialsException("Credenciales inválidas");
         }
-        var usuario = usuarioRepo.findByEmail(email)
+        var usuario = usuarioRepo.findByUsername(email).or(() -> usuarioRepo.findByEmail(email))
                 .orElseThrow(() -> new BadCredentialsException("Credenciales inválidas"));
         if (!passwordEncoder.matches(password, usuario.getPassword()) || !new CustomUserDetails(usuario).isEnabled()) {
             throw new BadCredentialsException("Credenciales inválidas");
@@ -29,6 +30,10 @@ public class LoginService {
         response.put("usuarioId", usuario.getId());
         response.put("nombre", usuario.getNombre());
         response.put("roles", usuario.getRoles());
+        response.put("username", usuario.getUsername() == null ? usuario.getEmail() : usuario.getUsername());
+        response.put("active", Boolean.TRUE.equals(usuario.getActive()) && !"INACTIVO".equalsIgnoreCase(usuario.getStatus()));
+        response.put("appAuthorized", authorization.usuarioAutorizado(usuario.getEmail()));
+        response.put("credentialVersion", usuario.getCredentialVersion());
         response.put("accessToken", jwtTokenProvider.generateAccessToken(usuario.getEmail()));
         response.put("refreshToken", jwtTokenProvider.generateRefreshToken(usuario.getEmail()));
         response.put("mensaje", "Inicio de sesión exitoso");

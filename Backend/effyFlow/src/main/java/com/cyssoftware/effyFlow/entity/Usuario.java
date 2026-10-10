@@ -41,6 +41,9 @@ public class Usuario {
     @Column(name = "active")
     private Boolean active;
 
+    @Column(name = "credential_version", insertable = false, updatable = false)
+    private Long credentialVersion = 1L;
+
     @Column(name = "name")
     private String name;
 

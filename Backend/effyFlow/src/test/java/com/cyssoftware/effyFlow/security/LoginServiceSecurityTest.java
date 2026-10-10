@@ -14,7 +14,8 @@ class LoginServiceSecurityTest {
     final JwtTokenProvider tokens = new JwtTokenProvider(JwtTokenProviderTest.SECRET, 15, 7);
     final UsuarioRepository repo = mock(UsuarioRepository.class);
     final PasswordEncoder encoder = mock(PasswordEncoder.class);
-    final LoginService service = new LoginService(repo, tokens, encoder);
+    final com.cyssoftware.effyFlow.service.pedido.SyncService authorization = mock(com.cyssoftware.effyFlow.service.pedido.SyncService.class);
+    final LoginService service = new LoginService(repo, tokens, encoder, authorization);
     Usuario user() {
         var u = new Usuario(); u.setEmail("user"); u.setRoles("AGENTE"); u.setActive(true); u.setStatus("ACTIVO"); return u;
     }
@@ -55,6 +56,17 @@ class LoginServiceSecurityTest {
         assertEquals(Rol.AGENTE.getPermisos(), Rol.VENDEDOR.getPermisos());
         assertFalse(Rol.VENDEDOR.getPermisos().contains(Permiso.VER_PEDIDOS_OTROS));
         assertFalse(Rol.VENDEDOR.getPermisos().contains(Permiso.MODIFICAR_PLAZO_CLIENTE));
+    }
+    @Test void usernameEnrollmentReturnsOnlySafeCredentialMetadata() {
+        var u = user(); u.setId(5L); u.setUsername("seller"); u.setRoles("VENDEDOR"); u.setCredentialVersion(8L);
+        when(repo.findByUsername("seller")).thenReturn(Optional.of(u));
+        when(encoder.matches("password", u.getPassword())).thenReturn(true);
+        when(authorization.usuarioAutorizado("user")).thenReturn(true);
+        var response = service.login("seller", "password");
+        assertEquals("seller", response.get("username")); assertEquals(8L, response.get("credentialVersion"));
+        assertEquals(true, response.get("active")); assertEquals(true, response.get("appAuthorized"));
+        assertFalse(response.containsKey("password")); assertFalse(response.containsKey("verifier"));
+        verify(repo, never()).findByEmail("seller");
     }
     @Test void vendedorStillRejectsWrongPasswordAndDisabledAuthorization() {
         var u = user(); u.setRoles("VENDEDOR");

@@ -18,6 +18,18 @@ public class SyncService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
+    // ERP's legacy role can be VENDEDOR even for Doctor/panel_user. Check the actual assigned role.
+    private static final String APP_USERS = "(SELECT u.* FROM public.users u JOIN public.roles r ON r.id=u.id_rol "
+            + "WHERE u.role IN ('AGENTE', 'VENDEDOR', 'ADMIN') "
+            + "AND r.name IN ('AGENTE', 'VENDEDOR', 'ADMIN', 'super_admin')) app_users";
+
+    public boolean usuarioAutorizado(String email) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM " + APP_USERS
+                + " WHERE email=:email AND active=true AND COALESCE(upper(status), '') <> 'INACTIVO'",
+                new MapSqlParameterSource("email", email), Long.class);
+        return count != null && count == 1;
+    }
+
     public Map<String, Object> obtenerCatalogo(String nombre, LocalDateTime updatedAfter, int page, int size) {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(500, Math.max(1, size));
@@ -194,13 +206,17 @@ public class SyncService {
             case "usuarios" -> new CatalogQuery("""
                     SELECT
                         id,
-                        nombre,
+                        COALESCE(full_name, nombre, username) AS nombre,
+                        COALESCE(username, email) AS username,
                         email,
                         role AS roles,
+                        (COALESCE(active, false) AND COALESCE(upper(status), '') <> 'INACTIVO') AS active,
+                        true AS "appAuthorized",
+                        credential_version AS "credentialVersion",
                         status,
                         updated_at AS "updatedAt"
-                    FROM public.users
-                    """, "public.users", "updated_at", "id", true);
+                    FROM %s
+                    """.formatted(APP_USERS), APP_USERS, "updated_at", "id", false);
             case "unidades_medida" -> new CatalogQuery("""
                     SELECT
                         id_unidad AS "idUnidad",

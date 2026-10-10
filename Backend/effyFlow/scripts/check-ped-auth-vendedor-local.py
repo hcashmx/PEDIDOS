@@ -37,7 +37,9 @@ status, catalog = request("/api/sync/catalogos/usuarios?page=0&size=500", token=
 assert status == 200, f"Catalog HTTP {status}"
 assert catalog["data"], "Expected existing users"
 assert all(not ({"password", "pass", "verifier", "passwordHash"} & set(user)) for user in catalog["data"])
-print("Users catalog: HTTP 200; no credential verifier (offline provisioning unavailable)")
+assert all({"username", "active", "appAuthorized", "credentialVersion"} <= set(user) for user in catalog["data"])
+assert all(user["roles"] in {"AGENTE", "VENDEDOR", "ADMIN"} for user in catalog["data"])
+print("Users catalog: HTTP 200; safe authorization/version metadata; no password/hash/verifier")
 status, _ = request("/api/sync/pedidos/estados?afterId=0&limit=1", token=token)
 assert status == 200, f"State feed HTTP {status}"
 print("PED-SYNC-R1 feed: HTTP 200")
