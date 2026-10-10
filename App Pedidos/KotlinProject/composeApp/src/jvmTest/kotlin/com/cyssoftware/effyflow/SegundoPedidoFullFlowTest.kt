@@ -41,7 +41,7 @@ class SegundoPedidoFullFlowTest {
 
         val sessionBefore = db.authQueries.getSession().executeAsOneOrNull()
         assertNotNull(sessionBefore, "Debe existir UserSession local")
-        val login = LoginRepository().login(sessionBefore.email, sessionBefore.password)
+        val login = LoginRepository().login(sessionBefore.email, (System.getenv("EFFY_TEST_PASSWORD") ?: error("Set EFFY_TEST_PASSWORD for opt-in UAT; passwords are never cached")))
         assertFalse(login.accessToken.isNullOrBlank(), "Login no generó token")
 
         runCatalogSync(local)
@@ -167,11 +167,7 @@ class SegundoPedidoFullFlowTest {
                 val session = local.getSession()
                 val cached = DatabaseProvider.database.authQueries.getSession().executeAsOneOrNull()
                 if (session != null && cached != null) {
-                    local.saveSession(
-                        email = cached.email,
-                        pass = cached.password,
-                        data = session.copy(accessToken = accessToken, refreshToken = refreshToken)
-                    )
+                    local.updateTokens(accessToken, refreshToken)
                 }
             },
             onSyncComplete = { latch.countDown() }

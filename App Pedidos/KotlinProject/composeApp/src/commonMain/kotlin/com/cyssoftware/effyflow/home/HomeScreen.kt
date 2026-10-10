@@ -42,16 +42,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cyssoftware.effyflow.login.data.LoginRepository
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
     repository: LoginRepository,
     onModuloPedido: () -> Unit,
     onConfig: () -> Unit = {},
+    onLogout: () -> Unit = {},
 ) {
     var nombre by remember { mutableStateOf("Cargando...") }
     var email by remember { mutableStateOf("") }
     var rol by remember { mutableStateOf("") }
+    var authMessage by remember { mutableStateOf<String?>(null) }
+    var syncingUsers by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         val session = repository.getOfflineSession()
@@ -143,6 +148,16 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text("Configuracion")
                 }
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        syncingUsers = true
+                        authMessage = try { repository.synchronizeUsersWithSession() }
+                        catch (_: Exception) { "No se pudo actualizar usuarios. Puedes continuar offline; si Sync requiere autenticación, usa Sincronizar usuarios en el login." }
+                        finally { syncingUsers = false }
+                    }
+                }, enabled=!syncingUsers, modifier=Modifier.fillMaxWidth()) { Text("Sincronizar usuarios") }
+                authMessage?.let { Text(it, style=MaterialTheme.typography.bodySmall) }
+                OutlinedButton(onClick=onLogout, modifier=Modifier.fillMaxWidth()) { Text("Cerrar sesión") }
             }
         }
     }

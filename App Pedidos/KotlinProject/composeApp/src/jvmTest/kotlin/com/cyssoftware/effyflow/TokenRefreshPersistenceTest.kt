@@ -18,13 +18,34 @@ import kotlinx.serialization.json.*
 import com.cyssoftware.effyflow.pedido.sincronizacion.viewModel.configureSyncBearer
 
 class TokenRefreshPersistenceTest {
+    @Test fun lateRefreshCannotAssignPreviousUsersTokensToNewLocalUser() {
+        ComercialFixture().use { f ->
+            val storage=AuthLocalDataSource(f.db)
+            seedSession(storage,"first","first-password",LoginResponse(accessToken="first-access",refreshToken="first-refresh"))
+            storage.applyCatalog(listOf(
+                com.cyssoftware.effyflow.login.data.model.AuthorizedUser(42,"first","First",roles="AGENTE",active=true,appAuthorized=true,credentialVersion=1),
+                com.cyssoftware.effyflow.login.data.model.AuthorizedUser(43,"second","Second",roles="AGENTE",active=true,appAuthorized=true,credentialVersion=1)))
+            storage.enroll("second","second-password",LoginResponse(usuarioId=43,username="second",roles="AGENTE",
+                active=true,appAuthorized=true,credentialVersion=1,accessToken="second-access",refreshToken="second-refresh"))
+            assertFailsWith<IllegalStateException> { storage.updateTokensForUser(42,"late-first-access","late-first-refresh") }
+            assertEquals("second-access",storage.getSession()?.accessToken)
+            assertEquals("first-access",f.db.authQueries.getTokens(42).executeAsOne().accessToken)
+        }
+    }
+    private fun seedSession(storage: AuthLocalDataSource, username: String, password: String, data: LoginResponse) {
+        storage.applyCatalog(listOf(com.cyssoftware.effyflow.login.data.model.AuthorizedUser(
+            42, username, data.nombre ?: "Test", roles=data.roles ?: "AGENTE", active=true, appAuthorized=true, credentialVersion=1)))
+        storage.enroll(username, password, data.copy(usuarioId=42, username=username, active=true,
+            appAuthorized=true, credentialVersion=1, roles=data.roles ?: "AGENTE"))
+    }
+
     @Test
     fun unauthorizedRequestRefreshesPersistsAndRetriesWithNewBearer() = runBlocking {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         try {
             EffyDatabase.Schema.create(driver)
             val storage = AuthLocalDataSource(EffyDatabase(driver))
-            storage.saveSession("test@example.invalid", "test", LoginResponse(accessToken = "old-access", refreshToken = "old-refresh"))
+            seedSession(storage, "test@example.invalid", "test", LoginResponse(accessToken = "old-access", refreshToken = "old-refresh"))
             var refreshCalls = 0
             var protectedCalls = 0
             val engine = MockEngine { request ->
@@ -70,7 +91,7 @@ class TokenRefreshPersistenceTest {
             try {
                 EffyDatabase.Schema.create(driver)
                 val storage = AuthLocalDataSource(EffyDatabase(driver))
-                storage.saveSession("test@example.invalid", "test-only-password", LoginResponse(
+                seedSession(storage, "test@example.invalid", "test-only-password", LoginResponse(
                     accessToken = "old-access", refreshToken = "old-refresh", roles = "AGENTE",
                     usuarioId = 42, nombre = "Test"))
                 val saveTokens: (String, String) -> Unit = storage::updateTokens
@@ -89,7 +110,7 @@ class TokenRefreshPersistenceTest {
                 assertEquals(42, session.usuarioId)
                 assertEquals("AGENTE", session.roles)
                 assertEquals("Test", session.nombre)
-                assertTrue(storage.validateCredentials("test@example.invalid", "test-only-password"))
+                assertNull(storage.loginLocally("test@example.invalid", "test-only-password").error)
             } finally { reopenedDriver.getConnection().close(); reopenedDriver.close() }
         } finally { Files.deleteIfExists(file) }
     }
@@ -99,7 +120,7 @@ class TokenRefreshPersistenceTest {
         try {
             EffyDatabase.Schema.create(driver)
             val storage = AuthLocalDataSource(EffyDatabase(driver))
-            storage.saveSession("test@example.invalid", "test", LoginResponse(accessToken = "old-access", refreshToken = "old-refresh"))
+            seedSession(storage, "test@example.invalid", "test", LoginResponse(accessToken = "old-access", refreshToken = "old-refresh"))
             assertFailsWith<IllegalArgumentException> { storage.updateTokens("", "new-refresh") }
             assertFailsWith<IllegalArgumentException> { storage.updateTokens("new-access", " ") }
             assertEquals("old-access", storage.getSession()?.accessToken)

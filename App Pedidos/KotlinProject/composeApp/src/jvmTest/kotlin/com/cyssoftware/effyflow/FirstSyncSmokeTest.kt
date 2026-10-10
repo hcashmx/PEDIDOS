@@ -44,11 +44,7 @@ class FirstSyncSmokeTest {
             saveTokens = { accessToken, refreshToken ->
                 val session = local.getSession()
                 if (session != null) {
-                    local.saveSession(
-                        email = System.getenv("EFFY_TEST_EMAIL") ?: "",
-                        pass = System.getenv("EFFY_TEST_PASSWORD") ?: "",
-                        data = session.copy(accessToken = accessToken, refreshToken = refreshToken)
-                    )
+                    local.updateTokens(accessToken, refreshToken)
                 }
             },
             onSyncComplete = { latch.countDown() }

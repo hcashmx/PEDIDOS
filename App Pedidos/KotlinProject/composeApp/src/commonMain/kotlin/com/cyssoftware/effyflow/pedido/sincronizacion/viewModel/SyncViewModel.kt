@@ -175,6 +175,13 @@ class SyncViewModel(
     }
 
     private suspend fun syncSingleCatalog(nombre: String, updatedAfter: String?) {
+        if (nombre == "usuarios") {
+            com.cyssoftware.effyflow.login.data.authorizationMutex.withLock {
+                val users = com.cyssoftware.effyflow.login.data.downloadAuthorizedUsers(client, configRepository.requireBaseUrl())
+                com.cyssoftware.effyflow.login.data.AuthLocalDataSource(database).applyCatalog(users)
+            }
+            return
+        }
         var page = 0
         var totalPages = 1
 
@@ -231,7 +238,6 @@ class SyncViewModel(
                     "series_folios_usuarios" -> saveSeriesFoliosUsuariosData(data as JsonArray)
                     "stock_productos" -> saveStockProductosData(data as JsonArray)
                     "unidades_medida" -> saveUnidadesMedidaData(data as JsonArray)
-                    "usuarios" -> saveUsuariosData(data as JsonArray)
                     "pedidos" -> savePedidosData(data as JsonArray)
                     // Dentro de syncSingleCatalog en el bloque try-when
                     "kits_detalle" -> saveProductosKitsData(data as JsonArray)
@@ -666,33 +672,6 @@ class SyncViewModel(
         println("✅ Datos guardados para: unidades_medida")
     }
 
-    private fun saveUsuariosData(data: JsonArray) {
-        // El catálogo es "usuarios", pero el .sq se llama 'users.sq'
-        val usersQueries = database.usersQueries
-
-        usersQueries.transaction {
-            data.forEach { jsonElement ->
-                val item = jsonElement.jsonObject
-
-                try {
-                    usersQueries.insertUsers(
-                        id = item.getLong("id") ?: 0L, // PK
-                        nombre = item.getString("nombre"),
-                        email = item.getString("email"),
-                        pass = "",//item.getString("pass"), // ⚠️ Considera no sincronizar contraseñas reales
-                        roles = item.getString("roles"),
-                        status = item.getString("status"),
-                        updated_at = item.getString("updatedAt") // ← corregido aquí
-                    )
-                } catch (e: Exception) {
-                    println("❌ Error al insertar usuario (user): ${e.message}")
-                    println("Registro problemático: $item")
-                    // Implementar 'updateUsers' o 'upsert'
-                }
-            }
-        }
-        println("✅ Datos guardados para: usuarios (users)")
-    }
 
     private fun saveProductosKitsData(data: JsonArray) {
         val kitsQueries = database.productos_kitsQueries

@@ -10,5 +10,9 @@ data class LoginResponse(
     val usuarioId: Int? = null,
     val nombre: String? = null,
     val refreshToken: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val username: String? = null,
+    val active: Boolean? = null,
+    val appAuthorized: Boolean? = null,
+    val credentialVersion: Long? = null
 )

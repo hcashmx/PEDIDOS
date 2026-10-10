@@ -1,28 +1,44 @@
-CREATE TABLE UserSession (
-    id INTEGER PRIMARY KEY NOT NULL DEFAULT 1, -- Forzamos que siempre sea el ID 1 para tener solo una sesión activa
-    email TEXT NOT NULL,
-    password TEXT NOT NULL,
-    accessToken TEXT NOT NULL,
-    refreshToken TEXT,
-    roles TEXT,
-    usuarioName TEXT,
-    usuarioId INTEGER
+CREATE TABLE OfflineUser (
+ userId INTEGER NOT NULL PRIMARY KEY, username TEXT NOT NULL UNIQUE, email TEXT,
+ nombre TEXT NOT NULL, roles TEXT NOT NULL, active INTEGER NOT NULL,
+ credentialVersion INTEGER NOT NULL, salt TEXT, verifier TEXT, iterations INTEGER, enrolledAt TEXT
+);
+CREATE TABLE LocalSession (
+ id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1), userId INTEGER NOT NULL, authenticatedAt TEXT NOT NULL
+);
+CREATE TABLE SyncCredentials (
+ userId INTEGER NOT NULL PRIMARY KEY, accessToken TEXT NOT NULL, refreshToken TEXT NOT NULL
 );
 
--- Guardar o Actualizar sesión (Upsert)
-insertOrReplaceSession:
-INSERT OR REPLACE INTO UserSession(id, email, password, accessToken, refreshToken, roles, usuarioName, usuarioId)
-VALUES (1, ?, ?, ?, ?, ?, ?, ?);
-
--- Obtener sesión
+findUser:
+SELECT * FROM OfflineUser WHERE username = ?;
+findUserById:
+SELECT * FROM OfflineUser WHERE userId = ?;
+allUsers:
+SELECT * FROM OfflineUser ORDER BY username;
+insertUser:
+INSERT OR IGNORE INTO OfflineUser(userId, username, email, nombre, roles, active, credentialVersion)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+updateUser:
+UPDATE OfflineUser SET username=?, email=?, nombre=?, roles=?, active=?, credentialVersion=? WHERE userId=?;
+disableAll:
+UPDATE OfflineUser SET active = 0;
+invalidateUser:
+UPDATE OfflineUser SET salt=NULL, verifier=NULL, iterations=NULL, enrolledAt=NULL WHERE userId = ?;
+enrollUser:
+UPDATE OfflineUser SET salt=?, verifier=?, iterations=?, enrolledAt=? WHERE userId=?;
+openSession:
+INSERT OR REPLACE INTO LocalSession(id, userId, authenticatedAt) VALUES (1, ?, ?);
 getSession:
-SELECT * FROM UserSession WHERE id = 1;
-
--- Borrar sesión (Logout)
+SELECT u.userId AS usuarioId, u.username AS email, u.nombre AS usuarioName, u.roles, t.accessToken, t.refreshToken
+FROM LocalSession s JOIN OfflineUser u ON u.userId=s.userId
+LEFT JOIN SyncCredentials t ON t.userId=u.userId
+WHERE s.id=1 AND u.active=1 AND u.verifier IS NOT NULL;
 clearSession:
-DELETE FROM UserSession;
--- Refresh only the tokens, preserving the login/session metadata.
-updateTokens:
-UPDATE UserSession
-SET accessToken = :accessToken, refreshToken = :refreshToken
-WHERE id = 1;
+DELETE FROM LocalSession;
+saveTokens:
+INSERT OR REPLACE INTO SyncCredentials(userId, accessToken, refreshToken) VALUES (?, ?, ?);
+getTokens:
+SELECT * FROM SyncCredentials WHERE userId = ?;
+deleteTokens:
+DELETE FROM SyncCredentials WHERE userId = ?;

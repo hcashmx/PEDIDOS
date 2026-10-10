@@ -4,6 +4,8 @@ import app.cash.sqldelight.db.SqlDriver
 
 object LocalSchemaMigrations {
     fun apply(driver: SqlDriver) {
+        // secure_delete scrubs the discarded plaintext cache, including legacy users.pass.
+        driver.execute(null, "PRAGMA secure_delete = ON", 0)
         driver.execute(
             null,
             """
@@ -67,6 +69,23 @@ object LocalSchemaMigrations {
                 // Never hide a failed commercial outbox migration (disk full, locks, etc.).
                 if (e.message?.contains("duplicate column name", ignoreCase = true) != true) throw e
             }
+        }
+        migrateOfflineAuthentication(driver)
+    }
+
+    private fun migrateOfflineAuthentication(driver: SqlDriver) {
+        val legacy = driver.executeQuery(null,
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='UserSession'",
+            { cursor -> cursor.next(); app.cash.sqldelight.db.QueryResult.Value(cursor.getLong(0)!! > 0) }, 0).value
+        driver.execute(null, "CREATE TABLE IF NOT EXISTS OfflineUser (userId INTEGER NOT NULL PRIMARY KEY, username TEXT NOT NULL UNIQUE, email TEXT, nombre TEXT NOT NULL, roles TEXT NOT NULL, active INTEGER NOT NULL, credentialVersion INTEGER NOT NULL, salt TEXT, verifier TEXT, iterations INTEGER, enrolledAt TEXT)", 0)
+        driver.execute(null, "CREATE TABLE IF NOT EXISTS LocalSession (id INTEGER NOT NULL PRIMARY KEY CHECK (id=1), userId INTEGER NOT NULL, authenticatedAt TEXT NOT NULL)", 0)
+        driver.execute(null, "CREATE TABLE IF NOT EXISTS SyncCredentials (userId INTEGER NOT NULL PRIMARY KEY, accessToken TEXT NOT NULL, refreshToken TEXT NOT NULL)", 0)
+        // Never derive offline authorization from the old cache. Require fresh online enrollment.
+        driver.execute(null, "UPDATE users SET pass=NULL WHERE pass IS NOT NULL", 0)
+        driver.execute(null, "DROP TABLE IF EXISTS UserSession", 0)
+        if (legacy) {
+            driver.execute(null, "PRAGMA wal_checkpoint(TRUNCATE)", 0)
+            driver.execute(null, "VACUUM", 0)
         }
     }
 }

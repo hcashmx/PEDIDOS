@@ -23,7 +23,7 @@ class PedidoSyncPostSmokeTest {
         val sessionBefore = db.authQueries.getSession().executeAsOneOrNull()
         assertNotNull(sessionBefore, "Expected local UserSession before syncing pedido")
 
-        val login = LoginRepository().login(sessionBefore.email, sessionBefore.password)
+        val login = LoginRepository().login(sessionBefore.email, (System.getenv("EFFY_TEST_PASSWORD") ?: error("Set EFFY_TEST_PASSWORD for opt-in UAT; passwords are never cached")))
         assertFalse(login.accessToken.isNullOrBlank(), "Login did not return access token")
         println("LOGIN_SUMMARY|ok=true|tokenGenerated=true")
 
@@ -91,11 +91,7 @@ class PedidoSyncPostSmokeTest {
                 val session = local.getSession()
                 if (session != null) {
                     val cached = DatabaseProvider.database.authQueries.getSession().executeAsOneOrNull()
-                    local.saveSession(
-                        email = cached?.email ?: "",
-                        pass = cached?.password ?: "",
-                        data = session.copy(accessToken = accessToken, refreshToken = refreshToken)
-                    )
+                    local.updateTokens(accessToken, refreshToken)
                 }
             },
             onSyncComplete = { latch.countDown() }

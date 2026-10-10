@@ -54,9 +54,22 @@ fun App() {
 
     // 3. Lógica de Arranque (Check Session)
     LaunchedEffect(Unit) {
+        // Each launch asks for the local password; persisted tokens/verifiers remain independent.
+        loginRepository.logout()
+        startRoute = if (!loginRepository.hasCatalog() && configRepository.getBaseUrl().isNullOrBlank()) "server_config_required" else "login"
 
-        startRoute = if (configRepository.getBaseUrl().isNullOrBlank()) "server_config_required" else "login"
+    }
 
+    // Local session revocation (disable/version change) must also leave protected screens.
+    LaunchedEffect(usuarioIdLogueado) {
+        while (usuarioIdLogueado != null) {
+            kotlinx.coroutines.delay(1000)
+            val activeSession = kotlinx.coroutines.withContext(Dispatchers.IO) { loginRepository.getOfflineSession() }
+            if (activeSession == null) {
+                usuarioIdLogueado = null
+                navController.navigate("login") { popUpTo(navController.graph.id) { inclusive=true } }
+            }
+        }
     }
 
     // 4. ViewModels Dependientes del Usuario
@@ -99,7 +112,8 @@ fun App() {
                 LoginScreen(
                     // Si modificaste LoginScreen para aceptar repo, pásalo aquí:
                     // repository = loginRepository,
-                    onLoginSuccess = { token ->
+                    repository = loginRepository,
+                    onLoginSuccess = {
                         // 🔄 AL LOGIN EXITOSO: Actualizamos el estado global
                         // Recuperamos la sesión recién guardada para obtener el ID
                         val session = loginRepository.getOfflineSession()
@@ -145,6 +159,11 @@ fun App() {
                     repository = loginRepository,
                     onModuloPedido = { navController.navigate("pedidos") },
                     onConfig = { navController.navigate("server_config") },
+                    onLogout = {
+                        loginRepository.logout()
+                        usuarioIdLogueado = null
+                        navController.navigate("login") { popUpTo(navController.graph.id) { inclusive=true } }
+                    },
                 )
             }
         }
@@ -168,20 +187,20 @@ fun App() {
         }
 
         composable("sync") {
-            val syncViewModel = remember {
+            val syncViewModel = remember(usuarioIdLogueado) {
+                val syncUserId = checkNotNull(usuarioIdLogueado)
                 SyncViewModel(
                     // 1. FUNCIÓN PARA OBTENER LOS TOKENS
                     getToken = {
                         // Retorna un Pair<AccessToken, RefreshToken>
-                        val session = loginRepository.getOfflineSession()
-                        Pair(session?.accessToken, session?.refreshToken)
+                        loginRepository.getSyncTokensForUser(syncUserId)
                     },
 
                     // 2. FUNCIÓN PARA GUARDAR LOS TOKENS (La función que preguntaste)
                     saveTokens = { newAccessToken, newRefreshToken ->
                         // ✅ ESTO actualiza la copia local (en Room, DataStore, etc.)
                         // Esta llamada es fundamental para que el nuevo token persista.
-                       loginRepository.updateTokens(newAccessToken, newRefreshToken)
+                       loginRepository.updateTokensForUser(syncUserId, newAccessToken, newRefreshToken)
                     },
                     onSyncComplete = {
                         triggerGlobalRefresh()

@@ -2,6 +2,8 @@ package com.cyssoftware.effyflow.login.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -18,17 +20,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cyssoftware.effyflow.login.viewmodel.LoginViewModel
+import com.cyssoftware.effyflow.login.data.LoginRepository
 
 @Composable
 fun LoginScreen(
-    onLoginSuccess: (String) -> Unit = {},
+    onLoginSuccess: () -> Unit = {},
     onConfig: () -> Unit = {},
+    repository: LoginRepository = remember { LoginRepository() },
 ) {
-    val viewModel = remember { LoginViewModel() }
+    val viewModel = remember(repository) { LoginViewModel(repository) }
     val uiState by viewModel.uiState.collectAsState()
     val savedEmail by viewModel.savedEmail.collectAsState()
-    var email by remember { mutableStateOf("ventas@ferreteria.com") }
-    var password by remember { mutableStateOf("vendedor") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
 
     LaunchedEffect(savedEmail) {
         if (savedEmail.isNotEmpty()) {
@@ -59,8 +63,8 @@ fun LoginScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .padding(28.dp)
-                    .fillMaxWidth(),
+                    .padding(20.dp)
+                    .fillMaxWidth().verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 🧭 Título
@@ -78,21 +82,34 @@ fun LoginScreen(
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     ),
-                    modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
+
+                AnimatedVisibility(uiState.message != null) {
+                    Text(
+                        text = uiState.message ?: "",
+                        color = if (uiState.messageIsError) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .fillMaxWidth()
+                    )
+                }
 
                 // 📨 Campo de email
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
-                    label = { Text("Correo electrónico") },
+                    label = { Text("Usuario") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
 
                 // 🔐 Campo de contraseña
                 OutlinedTextField(
@@ -106,8 +123,7 @@ fun LoginScreen(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                Spacer(Modifier.height(24.dp))
-
+                Spacer(Modifier.height(12.dp))
                 // 🔘 Botón de ingreso
                 Button(
                     onClick = {
@@ -118,7 +134,7 @@ fun LoginScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
-                    enabled = !uiState.isLoading,
+                    enabled = !uiState.isLoading && uiState.catalogReady,
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     if (uiState.isLoading) {
@@ -132,6 +148,14 @@ fun LoginScreen(
                     }
                 }
 
+                OutlinedButton(
+                    onClick = { viewModel.synchronizeUsers(email, password) },
+                    enabled = !uiState.isLoading && email.isNotBlank() && password.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Sincronizar usuarios") }
+                if (!uiState.catalogReady) Text("La provisión inicial requiere usuario y contraseña online.", style=MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(12.dp))
+
                 // 🔄 Mensajes de estado
                 TextButton(
                     onClick = onConfig,
@@ -140,25 +164,16 @@ fun LoginScreen(
                     Text("Configurar servidor")
                 }
 
-                AnimatedVisibility(uiState.message != null) {
-                    Text(
-                        text = uiState.message ?: "",
-                        color = if (uiState.success)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .padding(top = 16.dp)
-                            .fillMaxWidth()
-                    )
+                if (uiState.authorizedUsers.isNotEmpty()) {
+                    Text(uiState.authorizedUsers.joinToString("\n"), style=MaterialTheme.typography.bodySmall,
+                        modifier=Modifier.heightIn(max=64.dp).verticalScroll(rememberScrollState()))
+                    Spacer(Modifier.height(12.dp))
                 }
-
                 // ✅ Login exitoso
                 if (uiState.success) {
                     LaunchedEffect(Unit) {
-                        uiState.user?.accessToken?.let { onLoginSuccess(it) }
+                        password = ""
+                        onLoginSuccess()
                     }
                 }
             }
