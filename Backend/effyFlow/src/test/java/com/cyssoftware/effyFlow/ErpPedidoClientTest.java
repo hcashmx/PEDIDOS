@@ -14,6 +14,36 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
 class ErpPedidoClientTest {
+    @Test void descargaRevisionPorGetConElMecanismoAutenticadoExistente() throws Exception {
+        var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("http://erp.test/api/cotizaciones/revisiones-comerciales/actual"))
+                .andExpect(method(org.springframework.http.HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer external"))
+                .andRespond(withSuccess("{\"id\":\"12345678-1234-1234-1234-123456789abc\"}", MediaType.APPLICATION_JSON));
+        var client = new ErpPedidoClient(builder.build(), "http://erp.test", "external", "", "");
+        assertEquals("12345678-1234-1234-1234-123456789abc",
+                client.obtenerRevisionComercialActual().path("id").asText());
+        server.verify();
+    }
+
+    @Test void reautenticaUnaVezAlDescargarRevisionSiElAccessTokenExpira() throws Exception {
+        var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("http://erp.test/api/auth/login"))
+                .andRespond(withSuccess("{\"token\":\"one\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://erp.test/api/cotizaciones/revisiones-comerciales/12345678-1234-1234-1234-123456789abc"))
+                .andExpect(method(org.springframework.http.HttpMethod.GET)).andExpect(header("Authorization", "Bearer one"))
+                .andRespond(withUnauthorizedRequest());
+        server.expect(requestTo("http://erp.test/api/auth/login"))
+                .andRespond(withSuccess("{\"token\":\"two\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://erp.test/api/cotizaciones/revisiones-comerciales/12345678-1234-1234-1234-123456789abc"))
+                .andExpect(method(org.springframework.http.HttpMethod.GET)).andExpect(header("Authorization", "Bearer two"))
+                .andRespond(withSuccess("{\"id\":\"12345678-1234-1234-1234-123456789abc\"}", MediaType.APPLICATION_JSON));
+        var client = new ErpPedidoClient(builder.build(), "http://erp.test", "", "uat", "fixture");
+        assertEquals("12345678-1234-1234-1234-123456789abc", client.obtenerRevisionComercial(
+                java.util.UUID.fromString("12345678-1234-1234-1234-123456789abc")).path("id").asText());
+        server.verify();
+    }
+
     @ParameterizedTest @ValueSource(ints={400,401,403,409,422,500,503,429})
     void conservaStatusYCuerpoYClasificaRetries(int status) throws Exception {
         var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();

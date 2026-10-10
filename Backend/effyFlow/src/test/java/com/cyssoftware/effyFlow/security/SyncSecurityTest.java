@@ -3,9 +3,11 @@ package com.cyssoftware.effyFlow.security;
 import com.cyssoftware.effyFlow.controller.*;
 import com.cyssoftware.effyFlow.exception.GlobalExceptionHandler;
 import com.cyssoftware.effyFlow.controller.pedido.*;
+import com.cyssoftware.effyFlow.controller.cotizaciones.CotizacionSyncController;
 import com.cyssoftware.effyFlow.config.WebConfig;
 import com.cyssoftware.effyFlow.service.LoginService;
 import com.cyssoftware.effyFlow.service.pedido.*;
+import com.cyssoftware.effyFlow.service.cotizaciones.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -24,7 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(properties = {"app.jwt.secret=test-only-secret-0123456789-abcdef-0123456789", "logging.level.root=WARN"})
 @ContextConfiguration(classes = {SecurityConfig.class, WebConfig.class, JwtTokenProvider.class,
         JwtAuthenticationFilter.class, LoginController.class, HealthController.class,
-        PedidoController.class, PedidoEstadosController.class, SyncController.class, GlobalExceptionHandler.class})
+        PedidoController.class, PedidoEstadosController.class, SyncController.class, CotizacionSyncController.class,
+        GlobalExceptionHandler.class})
 class SyncSecurityTest {
     @Autowired MockMvc mvc;
     @Autowired JwtTokenProvider tokens;
@@ -33,6 +36,8 @@ class SyncSecurityTest {
     @MockitoBean PedidoService pedidos;
     @MockitoBean SyncService sync;
     @MockitoBean PedidoEstadosService estados;
+    @MockitoBean RevisionComercialSyncService revisiones;
+    @MockitoBean CotizacionIdentityAssertionService aserciones;
     static final String VALID = "{\"pedido\":{\"uuid_local\":\"12345678-1234-1234-1234-123456789abc\"},\"detalles\":[]}";
     String access() {
         when(users.loadUserByUsername("user")).thenReturn(User.withUsername("user").password("unused")
@@ -63,6 +68,46 @@ class SyncSecurityTest {
         mvc.perform(get("/api/sync/catalogos/usuarios").header("Authorization", "Bearer " + tokens.generateAccessToken("collector")))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(sync);
+    }
+    @Test void revisionCompleteRequiresRemoteSyncAuthorization() throws Exception {
+        mvc.perform(get("/api/sync/cotizaciones/revisiones-comerciales/actual"))
+                .andExpect(status().isUnauthorized());
+        String token = access();
+        when(sync.usuarioAutorizado("user")).thenReturn(false);
+        mvc.perform(get("/api/sync/cotizaciones/revisiones-comerciales/actual")
+                .header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
+        verifyNoInteractions(revisiones);
+    }
+    @Test void revisionReturnsOneCompleteVerifiedPackage() throws Exception {
+        String token = access(); when(sync.usuarioAutorizado("user")).thenReturn(true);
+        var id = java.util.UUID.randomUUID();
+        var datos = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("version_esquema", 3);
+        datos.putArray("productos");
+        when(revisiones.actual()).thenReturn(new RevisionComercialPaquete(id, 3,
+                java.time.OffsetDateTime.parse("2026-10-10T12:00:00Z"), "sha256:" + "a".repeat(64),
+                "a".repeat(64), datos));
+        mvc.perform(get("/api/sync/cotizaciones/revisiones-comerciales/actual")
+                .header("Authorization", "Bearer " + token)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.versionEsquema").value(3))
+                .andExpect(jsonPath("$.datosComerciales.productos").isArray());
+        verify(revisiones).actual();
+    }
+    @Test void asercionEndpointOnlyForwardsAuthenticatedRemotePrincipal() throws Exception {
+        String token = access();
+        var uuid = java.util.UUID.randomUUID(); var revision = java.util.UUID.randomUUID();
+        when(aserciones.emitir(eq("user"), any())).thenReturn(new CotizacionIdentityAssertionService.Asercion(
+                "signed-assertion", "Bearer", 3L, 9, "desktop-1", uuid, revision, "a".repeat(64), "b".repeat(64),
+                "jti-1", java.time.Instant.now(), java.time.Instant.now().plusSeconds(60)));
+        String payload = "{\"uuidCotizacion\":\"" + uuid + "\",\"revisionComercialId\":\"" + revision
+                + "\",\"dispositivoId\":\"desktop-1\",\"payload\":{\"uuid\":\"" + uuid
+                + "\",\"revisionComercialId\":\"" + revision + "\",\"oferta\":{\"agenteVentasId\":9}}}";
+        mvc.perform(post("/api/sync/cotizaciones/aserciones-identidad").header("Authorization", "Bearer " + token)
+                .contentType("application/json").content(payload)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("signed-assertion"))
+                .andExpect(jsonPath("$.agenteErpId").value(9));
+        mvc.perform(post("/api/sync/cotizaciones/aserciones-identidad")
+                .contentType("application/json").content(payload)).andExpect(status().isUnauthorized());
     }
     @Test void legacySellerRoleDoesNotAuthorizeUnrelatedErpProfile() throws Exception {
         when(users.loadUserByUsername("doctor")).thenReturn(User.withUsername("doctor").password("unused")

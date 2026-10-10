@@ -18,6 +18,8 @@ public class SyncService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
+    public record IdentidadComercial(Long usuarioErpId, Integer agenteErpId) { }
+
     // ERP's legacy role can be VENDEDOR even for Doctor/panel_user. Check the actual assigned role.
     private static final String APP_USERS = "(SELECT u.* FROM public.users u JOIN public.roles r ON r.id=u.id_rol "
             + "WHERE u.role IN ('AGENTE', 'VENDEDOR', 'ADMIN') "
@@ -28,6 +30,49 @@ public class SyncService {
                 + " WHERE email=:email AND active=true AND COALESCE(upper(status), '') <> 'INACTIVO'",
                 new MapSqlParameterSource("email", email), Long.class);
         return count != null && count == 1;
+    }
+
+    /** Revalida usuario, permiso ERP y vínculo único usuario-agente para cada aserción. */
+    public IdentidadComercial identidadCotizaciones(String email) {
+        var rows = jdbc.queryForList("""
+                SELECT u.id AS usuario_id, a.id_agente AS agente_id
+                FROM %s
+                JOIN public.agentes a ON a.id_usuario = u.id
+                WHERE lower(u.email) = lower(:email)
+                  AND u.active = true AND COALESCE(upper(u.status), '') <> 'INACTIVO'
+                  AND upper(u.role) IN ('AGENTE','VENDEDOR')
+                  AND (
+                    EXISTS (
+                      SELECT 1 FROM public.roles er
+                      JOIN public.role_has_permissions rhp ON rhp.role_id = er.id
+                      JOIN public.permissions p ON p.id = rhp.permission_id
+                      WHERE lower(er.guard_name)='web' AND lower(p.guard_name)='web'
+                        AND p.name='cotizaciones.crear'
+                        AND er.id IN (
+                          SELECT mhr.role_id FROM public.model_has_roles mhr
+                          WHERE mhr.model_id=u.id AND
+                            (mhr.model_type='App\\Models\\User' OR mhr.model_type LIKE '%%User')
+                          UNION ALL
+                          SELECT u.id_rol WHERE NOT EXISTS (
+                            SELECT 1 FROM public.model_has_roles mhr
+                            WHERE mhr.model_id=u.id AND
+                              (mhr.model_type='App\\Models\\User' OR mhr.model_type LIKE '%%User')
+                          )
+                        )
+                    ) OR EXISTS (
+                      SELECT 1 FROM public.model_has_permissions mhp
+                      JOIN public.permissions p ON p.id=mhp.permission_id
+                      WHERE mhp.model_id=u.id AND
+                        (mhp.model_type='App\\Models\\User' OR mhp.model_type LIKE '%%User')
+                        AND lower(p.guard_name)='web' AND p.name='cotizaciones.crear'
+                    )
+                  )
+                ORDER BY a.id_agente
+                """.formatted(APP_USERS.replace(" app_users", " u")), new MapSqlParameterSource("email", email));
+        if (rows.size() != 1) return null;
+        Number userId = (Number) rows.getFirst().get("usuario_id");
+        Number agentId = (Number) rows.getFirst().get("agente_id");
+        return new IdentidadComercial(userId.longValue(), agentId.intValue());
     }
 
     public Map<String, Object> obtenerCatalogo(String nombre, LocalDateTime updatedAfter, int page, int size) {

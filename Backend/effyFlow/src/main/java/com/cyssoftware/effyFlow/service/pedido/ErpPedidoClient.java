@@ -23,6 +23,13 @@ public class ErpPedidoClient {
         this.configuredToken = token; this.username = username; this.password = password;
     }
     public JsonNode crear(ErpCapturaRequest request) { return ejecutar("/api/pedidos/captura", request); }
+    public JsonNode obtenerRevisionComercialActual() {
+        return ejecutarGet("/api/cotizaciones/revisiones-comerciales/actual");
+    }
+    public JsonNode obtenerRevisionComercial(java.util.UUID id) {
+        if (id == null) throw new ErpCapturaException(400, null);
+        return ejecutarGet("/api/cotizaciones/revisiones-comerciales/" + id);
+    }
     // Optional preview uses the exact ERP preview shape (no uuidLocal/operacionKitId).
     public JsonNode preview(Map<String, Object> request) { return ejecutar("/api/pedidos/captura/preview", request); }
     private JsonNode ejecutar(String path, Object request) {
@@ -82,6 +89,35 @@ public class ErpPedidoClient {
         catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new ErpCapturaException(502, null); }
         if (result == null) throw new ErpCapturaException(502, null);
         return result;
+    }
+    private JsonNode ejecutarGet(String path) {
+        validarConfiguracion();
+        String token = obtenerToken();
+        try {
+            return get(path, token);
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 401 && configuredToken.isBlank()) {
+                synchronized (this) {
+                    if (token.equals(sessionToken)) sessionToken = null;
+                    token = obtenerToken();
+                }
+                try { return get(path, token); }
+                catch (RestClientResponseException second) { throw convertir(second); }
+                catch (ResourceAccessException timeout) { throw new ErpCapturaException(504, null); }
+                catch (org.springframework.web.client.RestClientException invalid) { throw new ErpCapturaException(502, null); }
+            }
+            throw convertir(ex);
+        } catch (ResourceAccessException ex) { throw new ErpCapturaException(504, null); }
+        catch (org.springframework.web.client.RestClientException invalid) { throw new ErpCapturaException(502, null); }
+    }
+    private JsonNode get(String path, String token) {
+        String body = client.get().uri(url + path).headers(headers -> headers.setBearerAuth(token))
+                .retrieve().body(String.class);
+        try {
+            JsonNode result = body == null ? null : json.readTree(body);
+            if (result == null) throw new ErpCapturaException(502, null);
+            return result;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new ErpCapturaException(502, null); }
     }
     private ErpCapturaException convertir(RestClientResponseException ex) {
         JsonNode detail;
