@@ -109,6 +109,24 @@ class SyncSecurityTest {
         mvc.perform(post("/api/sync/cotizaciones/aserciones-identidad")
                 .contentType("application/json").content(payload)).andExpect(status().isUnauthorized());
     }
+    @Test void asercionRejectsAgentOutsideAuthenticatedIdentityWithControlledForbidden() throws Exception {
+        String token = access();
+        var uuid = java.util.UUID.randomUUID(); var revision = java.util.UUID.randomUUID();
+        String payload = "{\"uuidCotizacion\":\"" + uuid + "\",\"revisionComercialId\":\"" + revision
+                + "\",\"dispositivoId\":\"desktop-1\",\"payload\":{\"uuid\":\"" + uuid
+                + "\",\"revisionComercialId\":\"" + revision + "\",\"oferta\":{\"agenteVentasId\":99}}}";
+        when(aserciones.emitir(eq("user"), any())).thenThrow(
+                new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.FORBIDDEN,
+                        "La identidad, agente, UUID y revisión no coinciden."));
+        mvc.perform(post("/api/sync/cotizaciones/aserciones-identidad")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json").content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("La identidad, agente, UUID y revisión no coinciden."))
+                .andExpect(jsonPath("$.token").doesNotExist());
+        verify(aserciones).emitir(eq("user"), any());
+    }
     @Test void legacySellerRoleDoesNotAuthorizeUnrelatedErpProfile() throws Exception {
         when(users.loadUserByUsername("doctor")).thenReturn(User.withUsername("doctor").password("unused")
                 .authorities("SINCRONIZAR_DATOS").build());

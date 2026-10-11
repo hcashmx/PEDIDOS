@@ -4,15 +4,19 @@ import com.cyssoftware.effyFlow.service.cotizaciones.CotizacionIdentityAssertion
 import com.cyssoftware.effyFlow.service.cotizaciones.RevisionComercialPaquete;
 import com.cyssoftware.effyFlow.service.cotizaciones.RevisionComercialSyncService;
 import com.cyssoftware.effyFlow.service.pedido.SyncService;
+import java.util.Map;
 import java.util.UUID;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /** Contratos de preparación; no crea ni persiste Cotizaciones. */
 @RestController
@@ -48,6 +52,15 @@ public class CotizacionSyncController {
         if (authentication == null || !authentication.isAuthenticated())
             throw new AccessDeniedException("Autenticación requerida.");
         return aserciones.emitir(authentication.getName(), request);
+    }
+
+    /** Conserva los estados controlados del servicio para que el manejador global no los convierta en HTTP 500. */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, String>> status(ResponseStatusException ex) {
+        String message = ex.getReason() == null || ex.getReason().isBlank()
+                ? "No fue posible procesar la solicitud de identidad."
+                : ex.getReason();
+        return ResponseEntity.status(ex.getStatusCode()).body(Map.of("error", message));
     }
 
     private void requireSync(Authentication authentication) {
