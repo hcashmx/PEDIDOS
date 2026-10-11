@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 /** Descarga paquetes de revisión completos; no mezcla páginas del catálogo mutable. */
 @Service
@@ -27,7 +28,7 @@ public class RevisionComercialSyncService {
     private final ErpPedidoClient erp;
     private final ObjectMapper mapper;
 
-    public RevisionComercialSyncService(ErpPedidoClient erp, ObjectMapper mapper) {
+    public RevisionComercialSyncService(@Qualifier("erpCotizacionClient") ErpPedidoClient erp, ObjectMapper mapper) {
         this.erp = erp;
         this.mapper = mapper.copy().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
     }
