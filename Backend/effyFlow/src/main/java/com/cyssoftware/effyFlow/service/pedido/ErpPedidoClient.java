@@ -23,6 +23,29 @@ public class ErpPedidoClient {
         this.configuredToken = token; this.username = username; this.password = password;
     }
     public JsonNode crear(ErpCapturaRequest request) { return ejecutar("/api/pedidos/captura", request); }
+    /** Sends one already-signed canonical Cotización payload through the dedicated ERP client. */
+    public ErpCotizacionResponse crearCotizacion(JsonNode payload, String assertion) {
+        validarConfiguracion();
+        if (payload == null || !payload.isObject() || assertion == null || assertion.isBlank())
+            throw new ErpCapturaException(400, null);
+        String token = obtenerToken();
+        try {
+            return postCotizacion(payload, assertion, token);
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 401 && configuredToken.isBlank()) {
+                synchronized (this) {
+                    if (token.equals(sessionToken)) sessionToken = null;
+                    token = obtenerToken();
+                }
+                try { return postCotizacion(payload, assertion, token); }
+                catch (RestClientResponseException second) { throw convertir(second); }
+                catch (ResourceAccessException timeout) { throw new ErpCapturaException(504, null); }
+                catch (org.springframework.web.client.RestClientException invalid) { throw new ErpCapturaException(502, null); }
+            }
+            throw convertir(ex);
+        } catch (ResourceAccessException ex) { throw new ErpCapturaException(504, null); }
+        catch (org.springframework.web.client.RestClientException invalid) { throw new ErpCapturaException(502, null); }
+    }
     public JsonNode obtenerRevisionComercialActual() {
         return ejecutarGet("/api/cotizaciones/revisiones-comerciales/actual");
     }
@@ -74,7 +97,7 @@ public class ErpPedidoClient {
             return sessionToken;
         } catch (RestClientResponseException ex) {
             // Do not forward login response bodies: credentials and session details are transport-private.
-            throw new ErpCapturaException(ex.getStatusCode().value(), null);
+            throw new ErpCapturaException(ex.getStatusCode().value(), null, "AUTENTICACION_TECNICA_ERP");
         } catch (ResourceAccessException ex) { throw new ErpCapturaException(504, null); }
         catch (org.springframework.web.client.RestClientException invalid) { throw new ErpCapturaException(502, null); }
     }
@@ -89,6 +112,19 @@ public class ErpPedidoClient {
         catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new ErpCapturaException(502, null); }
         if (result == null) throw new ErpCapturaException(502, null);
         return result;
+    }
+    private ErpCotizacionResponse postCotizacion(JsonNode payload, String assertion, String token) {
+        String wire;
+        try { wire = json.writeValueAsString(payload); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new ErpCapturaException(502, null); }
+        var response = client.post().uri(url + "/api/cotizaciones/app").contentType(MediaType.APPLICATION_JSON)
+                .headers(headers -> { headers.setBearerAuth(token); headers.set("X-Cotizacion-Assertion", assertion); })
+                .body(wire).retrieve().toEntity(String.class);
+        JsonNode result;
+        try { result = response.getBody() == null ? null : json.readTree(response.getBody()); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new ErpCapturaException(502, null); }
+        if (result == null) throw new ErpCapturaException(502, null);
+        return new ErpCotizacionResponse(response.getStatusCode().value(), result);
     }
     private JsonNode ejecutarGet(String path) {
         validarConfiguracion();
@@ -125,4 +161,5 @@ public class ErpPedidoClient {
         catch (com.fasterxml.jackson.core.JsonProcessingException | RuntimeException invalid) { detail = null; }
         return new ErpCapturaException(ex.getStatusCode().value(), detail);
     }
+    public record ErpCotizacionResponse(int status, JsonNode body) { }
 }

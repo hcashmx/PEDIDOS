@@ -14,6 +14,59 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
 class ErpPedidoClientTest {
+    @Test void envioCotizacionUsaTokenTecnicoSeparadoAssertionYBodyComercialCanonico() throws Exception {
+        var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
+        String payload = "{\"uuid\":\"12345678-1234-1234-1234-123456789abc\",\"revisionComercialId\":\"12345678-1234-1234-1234-123456789abd\",\"oferta\":{" +
+                "\"clienteId\":7,\"agenteVentasId\":9,\"fecha\":\"2026-10-11\",\"documentoSolicitado\":\"FACTURA\",\"renglones\":[{" +
+                "\"productoId\":4,\"cantidad\":1.25,\"precioUnitario\":12.5,\"descuentoPorcentaje\":0} ]}}";
+        server.expect(requestTo("http://erp.test/api/cotizaciones/app"))
+                .andExpect(method(org.springframework.http.HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer cotizaciones-only"))
+                .andExpect(header("X-Cotizacion-Assertion", "signed-rs256"))
+                .andExpect(content().json(payload))
+                .andRespond(withStatus(HttpStatusCode.valueOf(201)).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"cabecera\":{\"id\":42,\"estado\":\"BORRADOR\",\"version\":0}}"));
+        var client = new ErpPedidoClient(builder.build(), "http://erp.test", "cotizaciones-only", "", "");
+        var actualPayload = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload);
+        var result = client.crearCotizacion(actualPayload, "signed-rs256");
+        assertEquals(201, result.status());
+        assertEquals(42, result.body().path("cabecera").path("id").asInt());
+        server.verify();
+    }
+
+    @Test void retryCotizacionReautenticaSoloTokenTecnicoYConservaUuidYAssertion() throws Exception {
+        var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
+        String uuid = "12345678-1234-1234-1234-123456789abc";
+        String payload = "{\"uuid\":\"" + uuid + "\",\"revisionComercialId\":\"12345678-1234-1234-1234-123456789abd\",\"oferta\":{}}";
+        server.expect(requestTo("http://erp.test/api/auth/login")).andRespond(withSuccess("{\"token\":\"one\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://erp.test/api/cotizaciones/app"))
+                .andExpect(header("Authorization", "Bearer one")).andExpect(header("X-Cotizacion-Assertion", "signed-rs256"))
+                .andExpect(jsonPath("$.uuid").value(uuid)).andRespond(withUnauthorizedRequest());
+        server.expect(requestTo("http://erp.test/api/auth/login")).andRespond(withSuccess("{\"token\":\"two\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://erp.test/api/cotizaciones/app"))
+                .andExpect(header("Authorization", "Bearer two")).andExpect(header("X-Cotizacion-Assertion", "signed-rs256"))
+                .andExpect(jsonPath("$.uuid").value(uuid))
+                .andRespond(withStatus(HttpStatusCode.valueOf(200)).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"cabecera\":{\"id\":42}}"));
+        var client = new ErpPedidoClient(builder.build(), "http://erp.test", "", "cotizaciones", "fixture");
+        var result = client.crearCotizacion(new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload), "signed-rs256");
+        assertEquals(200, result.status()); server.verify();
+    }
+
+    @ParameterizedTest @ValueSource(ints={400,401,403,409,500,503})
+    void cotizacionPreservaEstatusERPParaClasificacionComercial(int status) throws Exception {
+        var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("http://erp.test/api/cotizaciones/app"))
+                .andExpect(header("X-Cotizacion-Assertion", "signed"))
+                .andRespond(withStatus(HttpStatusCode.valueOf(status)).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"controlled response\"}"));
+        var client = new ErpPedidoClient(builder.build(), "http://erp.test", "tech", "", "");
+        var ex = assertThrows(ErpCapturaException.class, () -> client.crearCotizacion(
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree("{\"uuid\":\"12345678-1234-1234-1234-123456789abc\"}"), "signed"));
+        assertEquals(status, ex.status());
+        server.verify();
+    }
+
     @Test void descargaRevisionPorGetConElMecanismoAutenticadoExistente() throws Exception {
         var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo("http://erp.test/api/cotizaciones/revisiones-comerciales/actual"))

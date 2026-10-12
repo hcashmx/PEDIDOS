@@ -38,6 +38,7 @@ class SyncSecurityTest {
     @MockitoBean PedidoEstadosService estados;
     @MockitoBean RevisionComercialSyncService revisiones;
     @MockitoBean CotizacionIdentityAssertionService aserciones;
+    @MockitoBean CotizacionSyncService cotizaciones;
     static final String VALID = "{\"pedido\":{\"uuid_local\":\"12345678-1234-1234-1234-123456789abc\"},\"detalles\":[]}";
     String access() {
         when(users.loadUserByUsername("user")).thenReturn(User.withUsername("user").password("unused")
@@ -126,6 +127,22 @@ class SyncSecurityTest {
                 .andExpect(jsonPath("$.error").value("La identidad, agente, UUID y revisión no coinciden."))
                 .andExpect(jsonPath("$.token").doesNotExist());
         verify(aserciones).emitir(eq("user"), any());
+    }
+    @Test void cotizacionPostRequiresAccessBearerAndReturnsErpConfirmationStatus() throws Exception {
+        String request = "{\"uuid\":\"12345678-1234-1234-1234-123456789abc\","
+                + "\"fechaComercial\":\"2026-10-11\",\"revisionComercialId\":\"12345678-1234-1234-1234-123456789abd\","
+                + "\"revisionHuellaSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\","
+                + "\"dispositivoId\":\"desktop-1\",\"clienteId\":7,\"documentoSolicitado\":\"FACTURA\","
+                + "\"renglones\":[{\"productoId\":4,\"cantidad\":1,\"precioReferencia\":12.50,\"descuentoSolicitado\":0}]}";
+        mvc.perform(post("/api/sync/cotizaciones").contentType("application/json").content(request))
+                .andExpect(status().isUnauthorized());
+        String token = access();
+        when(cotizaciones.enviar(eq("user"), any())).thenReturn(new CotizacionSyncService.Envio(
+                Map.of("resultado", "ACEPTADA", "uuidLocal", "12345678-1234-1234-1234-123456789abc", "idCotizacion", 42), false));
+        mvc.perform(post("/api/sync/cotizaciones").header("Authorization", "Bearer " + token)
+                        .contentType("application/json").content(request))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.idCotizacion").value(42));
+        verify(cotizaciones).enviar(eq("user"), any());
     }
     @Test void legacySellerRoleDoesNotAuthorizeUnrelatedErpProfile() throws Exception {
         when(users.loadUserByUsername("doctor")).thenReturn(User.withUsername("doctor").password("unused")
