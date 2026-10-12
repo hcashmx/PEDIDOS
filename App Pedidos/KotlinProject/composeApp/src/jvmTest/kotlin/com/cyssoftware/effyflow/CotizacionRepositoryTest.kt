@@ -104,6 +104,36 @@ class CotizacionRepositoryTest {
         } finally { driver.getConnection().close(); driver.close() }
     }
 
+    @Test fun captureSearchUsesCatalogNamesButOnlyShowsRevisionAndAgentAuthorizedRows() = runBlocking {
+        val (driver, repo) = fixture(payload())
+        val scopedData = canonical.replace(
+            "\"clientes_lista\":[{\"activo\":true,\"id_cliente\":30,\"numero_precio_id\":1}]",
+            "\"clientes_lista\":[{\"activo\":true,\"agente_id\":20,\"id_cliente\":30,\"numero_precio_id\":1}]"
+        )
+        val scopedHash = MessageDigest.getInstance("SHA-256").digest(scopedData.toByteArray()).joinToString("") { "%02x".format(it) }
+        try {
+            client(payload(digest = scopedHash, groups = scopedData)).use { repo.descargarRevisionActual(it, "https://sync.test") }
+            driver.execute(null, "INSERT INTO clientes(id_cliente,nombre,razon_social,rfc,activo,agente_id) VALUES(30,'ACME Comercial','ACME S.A.','ACM030',1,20)", 0)
+            driver.execute(null, "INSERT INTO clientes(id_cliente,nombre,razon_social,rfc,activo,agente_id) VALUES(31,'ACME Cliente externo','ACME Externo','ACM031',1,20)", 0)
+            for (id in 10000L..14768L) {
+                driver.execute(null, "INSERT INTO clientes(id_cliente,nombre,razon_social,rfc,activo,agente_id) VALUES($id,'Cliente $id','Razón Social $id','RFC$id',1,20)", 0)
+            }
+            driver.execute(null, "INSERT INTO productos(id_producto,codigo,nombre,descripcion,activo,tipo,id_unidad) VALUES(40,'KIT-040','Kit comercial demo','Kit de prueba',1,'K',1)", 0)
+            driver.execute(null, "INSERT INTO productos(id_producto,codigo,nombre,descripcion,activo,tipo,id_unidad) VALUES(41,'KIT-041','Kit no autorizado','Kit externo',1,'K',1)", 0)
+
+            assertTrue(repo.buscarClientesCaptura(repo.revisionActiva()!!.id, 20, "").isEmpty(), "La búsqueda vacía no debe listar miles de clientes")
+            val byName = repo.buscarClientesCaptura(repo.revisionActiva()!!.id, 20, "ACME")
+            assertEquals(listOf(30L), byName.map { it.id_cliente })
+            assertEquals("ACME S.A.", byName.single().razon_social)
+            assertEquals("ACM030", byName.single().rfc)
+            assertEquals(30L, repo.buscarClientesCaptura(repo.revisionActiva()!!.id, 20, "30").single().id_cliente)
+            assertTrue(repo.buscarClientesCaptura(repo.revisionActiva()!!.id, 21, "ACME").isEmpty(), "La revisión fija el agente autorizado")
+            assertEquals("Kit comercial demo", repo.buscarProductosCaptura(repo.revisionActiva()!!.id, "KIT-040").single().nombre)
+            assertEquals("Kit comercial demo", repo.buscarProductosCaptura(repo.revisionActiva()!!.id, "Kit de prueba").single().nombre)
+            assertTrue(repo.buscarProductosCaptura(repo.revisionActiva()!!.id, "KIT-041").isEmpty(), "No se deben mostrar artículos fuera de la revisión")
+        } finally { driver.getConnection().close(); driver.close() }
+    }
+
     @Test fun pendingQuoteAndRevisionSurviveDatabaseRestart() = runBlocking {
         val file = Files.createTempFile("cotizacion-persistencia", ".db")
         val url = "jdbc:sqlite:$file"
@@ -114,6 +144,8 @@ class CotizacionRepositoryTest {
             LocalSchemaMigrations.apply(firstDriver)
             val first = CotizacionRepository(EffyDatabase(firstDriver))
             deviceId = first.dispositivoId()
+            firstDriver.execute(null, "INSERT INTO clientes(id_cliente,nombre,razon_social,rfc,activo,agente_id) VALUES(30,'Cliente demostración','Comercial Demo S.A.','DEM030',1,22)", 0)
+            firstDriver.execute(null, "INSERT INTO productos(id_producto,codigo,nombre,descripcion,activo,tipo,id_unidad) VALUES(40,'ART-040','Artículo persistente','Descripción de artículo',1,'N',1)", 0)
             val revisionId = UUID.randomUUID().toString()
             client(payload(revisionId)).use { first.descargarRevisionActual(it, "https://sync.test") }
             first.guardarBorrador(12, 22, 30, "2026-10-03", "REMISION", "offline",
@@ -130,6 +162,10 @@ class CotizacionRepositoryTest {
             assertEquals("2026-10-03", quote.fechaComercial)
             assertEquals("REMISION", quote.documento)
             assertEquals("offline", quote.observaciones)
+            assertEquals(30L, quote.clienteId)
+            assertEquals("Comercial Demo S.A.", repository.clientePorId(quote.clienteId)?.razon_social)
+            assertEquals(40L, quote.renglones.single().productoId)
+            assertEquals("Artículo persistente", repository.productoPorId(quote.renglones.single().productoId)?.nombre)
             assertEquals("15.500000", quote.renglones.single().precioReferencia)
             assertEquals(quote.revisionId, repository.revisionActiva()?.id)
             val prepared = repository.prepararCaptura(quote.uuid)

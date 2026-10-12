@@ -115,4 +115,12 @@ WHERE agente_id = ?
 AND activo = 1
 AND (nombre LIKE '%' || ? || '%' OR rfc LIKE '%' || ? || '%');
 
+searchCotizacion:
+SELECT * FROM clientes
+WHERE nombre LIKE '%' || ? || '%'
+   OR razon_social LIKE '%' || ? || '%'
+   OR rfc LIKE '%' || ? || '%'
+   OR CAST(id_cliente AS TEXT) LIKE '%' || ? || '%'
+ORDER BY COALESCE(NULLIF(razon_social, ''), nombre), id_cliente;
+
 getMaxUpdatedAt: SELECT MAX(updated_at) AS max_updated_at FROM clientes;

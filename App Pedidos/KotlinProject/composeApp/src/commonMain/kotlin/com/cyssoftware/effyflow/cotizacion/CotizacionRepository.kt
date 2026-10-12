@@ -3,6 +3,8 @@ package com.cyssoftware.effyflow.cotizacion
 import com.benasher44.uuid.uuid4
 import com.cyssoftware.effyflow.db.DatabaseProvider
 import com.cyssoftware.effyflow.db.EffyDatabase
+import com.cyssoftware.effyflow.db.Clientes
+import com.cyssoftware.effyflow.db.Productos
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -114,6 +116,45 @@ class CotizacionRepository(internal val db: EffyDatabase = DatabaseProvider.data
         return runCatching { validar(packageData); packageData }.getOrNull()
     }
 
+    /** Search display data from the local catalog, constrained by the immutable revision and active agent. */
+    fun buscarClientesCaptura(revisionId: String, agenteId: Long?, query: String): List<Clientes> {
+        val term = query.trim()
+        if (term.isBlank() || agenteId == null) return emptyList()
+        val snapshot = checkNotNull(revision(revisionId)) { "La revisión comercial del borrador no está disponible." }
+        val authorized = snapshot.datosComerciales.getValue("clientes_lista").jsonArray.asSequence()
+            .map { it.jsonObject }
+            .filter { it["activo"]?.jsonPrimitive?.booleanOrNull == true }
+            .filter { row -> row["agente_id"]?.jsonPrimitive?.longOrNull?.let { it == agenteId } ?: true }
+            .mapNotNull { it["id_cliente"]?.jsonPrimitive?.longOrNull }
+            .toHashSet()
+        if (authorized.isEmpty()) return emptyList()
+        return db.clientesQueries.searchCotizacion(term, term, term, term).executeAsList()
+            .asSequence().filter { it.id_cliente in authorized }.take(CAPTURE_SEARCH_LIMIT).toList()
+    }
+
+    fun clientePorId(clienteId: Long): Clientes? = db.clientesQueries.findById(clienteId).executeAsOneOrNull()
+
+    /** Product labels/codes come from the catalog; eligibility and prices stay on the pinned snapshot. */
+    fun buscarProductosCaptura(revisionId: String, query: String): List<Productos> {
+        val term = query.trim()
+        if (term.isBlank()) return emptyList()
+        val snapshot = checkNotNull(revision(revisionId)) { "La revisión comercial del borrador no está disponible." }
+        val authorized = snapshot.datosComerciales.getValue("productos").jsonArray.asSequence()
+            .map { it.jsonObject }
+            .filter { it["activo"]?.jsonPrimitive?.booleanOrNull == true }
+            .mapNotNull { it["id_producto"]?.jsonPrimitive?.longOrNull }
+            .toHashSet()
+        if (authorized.isEmpty()) return emptyList()
+        return db.productosQueries.searchCotizacion(term, term, term, term, term).executeAsList()
+            .asSequence().filter { it.id_producto in authorized }.take(CAPTURE_SEARCH_LIMIT).toList()
+    }
+
+    fun productoPorId(productoId: Long): Productos? = db.productosQueries.findById(productoId).executeAsOneOrNull()
+
+    private companion object {
+        const val CAPTURE_SEARCH_LIMIT = 50
+    }
+
     fun calcularPrecio(revisionId: String, usuarioAgenteId: Long?, clienteId: Long, productoId: Long,
                        presentacionId: Long?, cantidad: String, fecha: String, descuento: String): CotizacionPricing.Result {
         val packageData = checkNotNull(revision(revisionId)) { "La revisión del borrador no está disponible." }
@@ -122,7 +163,7 @@ class CotizacionRepository(internal val db: EffyDatabase = DatabaseProvider.data
     }
 
     fun guardarBorrador(usuarioId: Long, agenteId: Long, clienteId: Long, fecha: String, documento: String,
-                        observaciones: String?, renglones: List<RenglonCotizacion>, uuid: String? = null) {
+                        observaciones: String?, renglones: List<RenglonCotizacion>, uuid: String? = null): String {
         require(usuarioId > 0 && agenteId > 0 && clienteId > 0 && renglones.isNotEmpty())
         require(documento == "FACTURA" || documento == "REMISION")
         val id = uuid ?: uuid4().toString()
@@ -165,6 +206,7 @@ class CotizacionRepository(internal val db: EffyDatabase = DatabaseProvider.data
                     line.cantidad, line.precioReferencia, line.descuentoSolicitado, revision.id, revision.huellaSha256)
             }
         }
+        return id
     }
 
     fun borradores(usuarioId: Long? = null): List<CotizacionLocal> = db.cotizacionesQueries.listCotizaciones().executeAsList()

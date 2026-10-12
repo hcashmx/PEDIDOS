@@ -237,3 +237,12 @@ LIMIT 20;
 
 getMaxUpdatedAt:
 SELECT MAX(updated_at) AS max_updated_at FROM productos;
+
+searchCotizacion:
+SELECT * FROM productos
+WHERE codigo LIKE '%' || ? || '%'
+   OR nombre LIKE '%' || ? || '%'
+   OR descripcion LIKE '%' || ? || '%'
+   OR upc LIKE '%' || ? || '%'
+   OR CAST(id_producto AS TEXT) LIKE '%' || ? || '%'
+ORDER BY nombre, id_producto;
