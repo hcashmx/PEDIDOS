@@ -37,7 +37,24 @@ CREATE TABLE cotizaciones (
     modificado_en TEXT NOT NULL,
     id_erp INTEGER,
     version_erp INTEGER,
-    subtotal_referencial TEXT NOT NULL DEFAULT '0'
+    subtotal_referencial TEXT NOT NULL DEFAULT '0',
+    subtotal_erp TEXT,
+    impuestos_erp TEXT,
+    total_erp TEXT
+);
+
+CREATE TABLE cotizacion_outbox (
+    uuid_local TEXT NOT NULL PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    estado_envio TEXT NOT NULL,
+    intentos INTEGER NOT NULL DEFAULT 0,
+    ultimo_error_codigo TEXT,
+    ultimo_error TEXT,
+    ultimo_intento_en TEXT,
+    proximo_intento_en TEXT,
+    resultado_envio TEXT,
+    respuesta_json TEXT,
+    FOREIGN KEY (uuid_local) REFERENCES cotizaciones(uuid_local) ON DELETE CASCADE
 );
 
 CREATE TABLE cotizacion_renglones (
@@ -55,11 +72,74 @@ CREATE TABLE cotizacion_renglones (
 );
 
 insertCotizacion:
-INSERT INTO cotizaciones VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO cotizaciones VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateCotizacion:
 UPDATE cotizaciones SET cliente_id=?, fecha_comercial=?, documento_solicitado=?, observaciones=?,
-  estado_local=?, modificado_en=?, subtotal_referencial=? WHERE uuid_local=? AND usuario_autor_id=? AND estado_local IN ('BORRADOR_LOCAL','ERROR_REINTENTABLE');
+  estado_local=?, modificado_en=?, subtotal_referencial=? WHERE uuid_local=? AND usuario_autor_id=? AND estado_local='BORRADOR_LOCAL';
+
+markCotizacionPending:
+UPDATE cotizaciones SET estado_local='PENDIENTE_ENVIO', modificado_en=? WHERE uuid_local=? AND usuario_autor_id=? AND estado_local='BORRADOR_LOCAL';
+
+markCotizacionSending:
+UPDATE cotizaciones SET estado_local='ENVIANDO', modificado_en=? WHERE uuid_local=? AND usuario_autor_id=? AND estado_local IN ('PENDIENTE_ENVIO','ERROR_REINTENTABLE');
+
+markCotizacionState:
+UPDATE cotizaciones SET estado_local=?, modificado_en=? WHERE uuid_local=?;
+
+acceptCotizacionErp:
+UPDATE cotizaciones SET estado_local='SINCRONIZADA', id_erp=?, version_erp=?, estado_comercial_erp=?,
+  subtotal_erp=?, impuestos_erp=?, total_erp=?, modificado_en=? WHERE uuid_local=?;
+
+freezeCotizacionOutbox:
+INSERT INTO cotizacion_outbox(uuid_local,payload_json,estado_envio,intentos) VALUES (?,?,'PENDIENTE_ENVIO',0);
+
+getCotizacionOutbox:
+SELECT * FROM cotizacion_outbox WHERE uuid_local=?;
+
+listCotizacionOutboxByUser:
+SELECT cotizacion_outbox.* FROM cotizacion_outbox JOIN cotizaciones USING(uuid_local)
+WHERE cotizaciones.usuario_autor_id=? ORDER BY cotizaciones.modificado_en;
+
+getDueCotizaciones:
+SELECT cotizacion_outbox.uuid_local FROM cotizacion_outbox JOIN cotizaciones USING(uuid_local)
+WHERE cotizaciones.usuario_autor_id=? AND (cotizacion_outbox.estado_envio='PENDIENTE_ENVIO'
+  OR (cotizacion_outbox.estado_envio='ERROR_REINTENTABLE' AND cotizacion_outbox.intentos < ?
+      AND cotizacion_outbox.proximo_intento_en <= ?))
+ORDER BY cotizaciones.capturada_en;
+
+activateDueCotizacionRetries:
+UPDATE cotizacion_outbox SET estado_envio='PENDIENTE_ENVIO' WHERE estado_envio='ERROR_REINTENTABLE'
+  AND intentos < ? AND proximo_intento_en <= ?;
+
+activateDueCotizacionHeaders:
+UPDATE cotizaciones SET estado_local='PENDIENTE_ENVIO', modificado_en=? WHERE estado_local='ERROR_REINTENTABLE'
+  AND EXISTS (SELECT 1 FROM cotizacion_outbox WHERE cotizacion_outbox.uuid_local=cotizaciones.uuid_local
+    AND cotizacion_outbox.estado_envio='PENDIENTE_ENVIO');
+
+markOutboxSending:
+UPDATE cotizacion_outbox SET estado_envio='ENVIANDO', intentos=intentos+1, ultimo_intento_en=?,
+  proximo_intento_en=NULL, ultimo_error_codigo=NULL, ultimo_error=NULL WHERE uuid_local=? AND estado_envio IN ('PENDIENTE_ENVIO','ERROR_REINTENTABLE');
+
+setOutboxState:
+UPDATE cotizacion_outbox SET estado_envio=?, ultimo_error_codigo=?, ultimo_error=?, ultimo_intento_en=?,
+  proximo_intento_en=?, resultado_envio=?, respuesta_json=? WHERE uuid_local=?;
+
+retryCotizacionOutbox:
+UPDATE cotizacion_outbox SET estado_envio='PENDIENTE_ENVIO', proximo_intento_en=NULL,
+  ultimo_error_codigo=NULL, ultimo_error=NULL WHERE uuid_local=? AND estado_envio IN ('ERROR_REINTENTABLE','REQUIERE_AUTENTICACION','REQUIERE_AUTORIZACION');
+
+recoverStuckCotizaciones:
+UPDATE cotizacion_outbox SET estado_envio='ERROR_REINTENTABLE', ultimo_error_codigo='ENVIO_INTERRUPTO',
+  ultimo_error='La aplicación se cerró durante el envío; reintenta con el mismo UUID.',
+  resultado_envio='ERROR_REINTENTABLE' WHERE estado_envio='ENVIANDO';
+
+recoverCotizacionHeaders:
+UPDATE cotizaciones SET estado_local='ERROR_REINTENTABLE', modificado_en=? WHERE estado_local='ENVIANDO';
+
+setOutboxSuccess:
+UPDATE cotizacion_outbox SET estado_envio='SINCRONIZADA', resultado_envio=?, respuesta_json=?, ultimo_error_codigo=NULL,
+  ultimo_error=NULL, proximo_intento_en=NULL WHERE uuid_local=?;
 
 listCotizaciones:
 SELECT * FROM cotizaciones ORDER BY modificado_en DESC;

@@ -85,6 +85,14 @@ object LocalSchemaMigrations {
             observaciones TEXT, estado_local TEXT NOT NULL, estado_comercial_erp TEXT,
             modificado_en TEXT NOT NULL, id_erp INTEGER, version_erp INTEGER,
             subtotal_referencial TEXT NOT NULL DEFAULT '0')""", 0)
+        listOf(
+            "ALTER TABLE cotizaciones ADD COLUMN subtotal_erp TEXT",
+            "ALTER TABLE cotizaciones ADD COLUMN impuestos_erp TEXT",
+            "ALTER TABLE cotizaciones ADD COLUMN total_erp TEXT"
+        ).forEach { statement ->
+            try { driver.execute(null, statement, 0) }
+            catch (e: Exception) { if (e.message?.contains("duplicate column name", ignoreCase = true) != true) throw e }
+        }
         driver.execute(null, """CREATE TABLE IF NOT EXISTS cotizacion_renglones (
             uuid_local TEXT NOT NULL, numero INTEGER NOT NULL, producto_id INTEGER NOT NULL,
             presentacion_id INTEGER, cantidad TEXT NOT NULL, precio_referencia TEXT NOT NULL,
@@ -103,6 +111,11 @@ object LocalSchemaMigrations {
             revision_huella_sha256 = (SELECT revision_huella_sha256 FROM cotizaciones WHERE cotizaciones.uuid_local=cotizacion_renglones.uuid_local)
             WHERE (revision_comercial_id='' OR revision_huella_sha256='')
             AND EXISTS (SELECT 1 FROM cotizaciones WHERE cotizaciones.uuid_local=cotizacion_renglones.uuid_local)""", 0)
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS cotizacion_outbox (
+            uuid_local TEXT NOT NULL PRIMARY KEY, payload_json TEXT NOT NULL, estado_envio TEXT NOT NULL,
+            intentos INTEGER NOT NULL DEFAULT 0, ultimo_error_codigo TEXT, ultimo_error TEXT,
+            ultimo_intento_en TEXT, proximo_intento_en TEXT, resultado_envio TEXT, respuesta_json TEXT,
+            FOREIGN KEY (uuid_local) REFERENCES cotizaciones(uuid_local) ON DELETE CASCADE)""", 0)
         migrateOfflineAuthentication(driver)
     }
 

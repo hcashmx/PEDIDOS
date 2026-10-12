@@ -29,7 +29,12 @@ data class CotizacionLocal(
     val uuid: String, val usuarioAutorId: Long, val agenteId: Long, val clienteId: Long,
     val fechaComercial: String, val revisionId: String, val huella: String,
     val documento: String, val observaciones: String?, val estadoLocal: String,
-    val subtotalReferencial: String, val renglones: List<RenglonCotizacion>
+    val subtotalReferencial: String, val renglones: List<RenglonCotizacion>,
+    val idErp: Long? = null, val versionErp: Long? = null, val estadoComercialErp: String? = null,
+    val subtotalErp: String? = null, val impuestosErp: String? = null, val totalErp: String? = null,
+    val estadoEnvio: String? = null, val intentosEnvio: Long = 0,
+    val ultimoErrorCodigo: String? = null, val ultimoError: String? = null,
+    val resultadoEnvio: String? = null, val respuestaEnvioJson: String? = null
 )
 
 data class RenglonCotizacion(
@@ -60,7 +65,7 @@ data class RenglonCapturaPreparada(
     val descuentoSolicitado: BigDecimal
 )
 
-class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.database) {
+class CotizacionRepository(internal val db: EffyDatabase = DatabaseProvider.database) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = false }
 
     fun dispositivoId(): String {
@@ -125,7 +130,7 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
         if (previousDraft != null) {
             require(previousDraft.usuario_autor_id == usuarioId) { "La Cotización pertenece a otro usuario." }
             require(previousDraft.agente_id == agenteId) { "La Cotización conserva el agente que la capturó." }
-            require(previousDraft.estado_local in listOf("BORRADOR_LOCAL", "ERROR_REINTENTABLE")) { "Sólo se editan borradores no enviados." }
+            require(previousDraft.estado_local == "BORRADOR_LOCAL") { "La Cotización se congela al marcarla para envío." }
         }
         val pinnedRevision = if (previousDraft != null) revision(previousDraft.revision_comercial_id) else revisionActiva()
         val revision = checkNotNull(pinnedRevision) {
@@ -145,10 +150,11 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
             val previous = previousDraft
             if (previous == null) {
                 db.cotizacionesQueries.insertCotizacion(id, usuarioId, agenteId, clienteId, fecha, now, revision.id,
-                    revision.huellaSha256, documento, observaciones, "BORRADOR_LOCAL", null, now, null, null, total)
+                    revision.huellaSha256, documento, observaciones, "BORRADOR_LOCAL", null, now, null, null, total,
+                    null, null, null)
             } else {
                 require(previous.usuario_autor_id == usuarioId) { "La Cotización pertenece a otro usuario." }
-                require(previous.estado_local in listOf("BORRADOR_LOCAL", "ERROR_REINTENTABLE")) { "Sólo se editan borradores no enviados." }
+                require(previous.estado_local == "BORRADOR_LOCAL") { "La Cotización se congela al marcarla para envío." }
                 val original = db.cotizacionesQueries.getRevision(previous.revision_comercial_id).executeAsOneOrNull()
                 require(original?.huella_sha256 == previous.revision_huella_sha256) { "La revisión original no está disponible." }
                 db.cotizacionesQueries.updateCotizacion(clienteId, fecha, documento, observaciones, "BORRADOR_LOCAL", now, total, id, usuarioId)
@@ -194,9 +200,12 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
             RenglonCotizacion(it.producto_id, it.presentacion_id, it.cantidad, it.precio_referencia,
                 it.descuento_solicitado, it.revision_comercial_id, it.revision_huella_sha256)
         }
+        val outbox = db.cotizacionesQueries.getCotizacionOutbox(uuid).executeAsOneOrNull()
         return CotizacionLocal(q.uuid_local, q.usuario_autor_id, q.agente_id, q.cliente_id, q.fecha_comercial,
             q.revision_comercial_id, q.revision_huella_sha256, q.documento_solicitado, q.observaciones,
-            q.estado_local, q.subtotal_referencial, lines)
+            q.estado_local, q.subtotal_referencial, lines, q.id_erp, q.version_erp, q.estado_comercial_erp,
+            q.subtotal_erp, q.impuestos_erp, q.total_erp, outbox?.estado_envio, outbox?.intentos ?: 0,
+            outbox?.ultimo_error_codigo, outbox?.ultimo_error, outbox?.resultado_envio, outbox?.respuesta_json)
     }
 
     private fun validar(p: PaqueteRevisionComercial) {
@@ -266,5 +275,10 @@ expect fun sha256Hex(bytes: ByteArray): String
 fun cotizacionesSyncClient(getToken: () -> Pair<String?, String?>, saveTokens: (String, String) -> Unit,
                            refreshUrl: () -> String): HttpClient = HttpClient {
     install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+    install(io.ktor.client.plugins.HttpTimeout) {
+        requestTimeoutMillis = 30_000
+        connectTimeoutMillis = 8_000
+        socketTimeoutMillis = 30_000
+    }
     configureSyncBearer(getToken, saveTokens, refreshUrl)
 }
