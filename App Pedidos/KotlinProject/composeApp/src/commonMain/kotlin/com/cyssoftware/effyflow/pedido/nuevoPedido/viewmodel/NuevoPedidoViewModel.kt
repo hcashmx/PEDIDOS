@@ -257,7 +257,10 @@ class NuevoPedidoViewModel(
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        error = "Error: Agente/Usuario no configurado."
+                        error = if (usuario == null)
+                            "El usuario no está en el catálogo local. Sincroniza los catálogos antes de capturar."
+                        else
+                            "Este usuario no tiene agente de ventas asignado. Ingresa con un vendedor vinculado o solicita la asignación en ERP y sincroniza los catálogos."
                     )
                 }
                 return@launch

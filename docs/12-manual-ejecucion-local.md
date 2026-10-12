@@ -191,6 +191,31 @@ cd "C:\BDS\PEDIDOS\Backend\effyFlow"
 
 ## 9. Problemas comunes
 
+### La app instalada muestra java/sql/DriverManager
+
+El instalador debe incluir el modulo `java.sql` en su entorno Java para que SQLite JDBC funcione. La configuracion en `composeApp/build.gradle.kts` incluye `modules("java.sql", "java.naming")` dentro de `nativeDistributions`.
+
+Para generar el instalador corregido:
+
+```powershell
+cd "C:\BDS\PEDIDOS\App Pedidos\KotlinProject"
+$env:JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot"
+$env:PATH="$env:JAVA_HOME\bin;$env:PATH"
+.\gradlew.bat :composeApp:packageMsi "-PappVersion=0.9.3"
+```
+
+El archivo se genera en:
+
+```text
+C:\BDS\PEDIDOS\App Pedidos\KotlinProject\composeApp\build\compose\binaries\main\msi\EffyFlow-0.9.3.msi
+```
+
+Cierra EffyFlow e instala esta version para actualizar la anterior.
+
+### Al sincronizar aparece javax/naming/AuthenticationException
+
+La sincronizacion usa una clase del modulo `java.naming`. Este modulo tambien debe estar incluido en el Java empaquetado. Instala la version `0.9.3` o posterior generada con la configuracion anterior. Si despues aparece un mensaje de sesion expirada o de renovacion de token fallida, vuelve a iniciar sesion y reintenta la sincronizacion.
+
 ### El login da HTTP 403
 
 Normalmente significa que estas entrando al servicio equivocado o al puerto equivocado.

@@ -45,7 +45,7 @@ class AppConfigRepository {
         }
         try {
             val response: HttpResponse =
-                client.get("$normalized/api/sync/catalogos/pedidos?page=0&size=1")
+                client.get("$normalized/api/health")
             if (response.status == HttpStatusCode.OK) {
                 ConnectionTestResult.Connected(normalized)
             } else {

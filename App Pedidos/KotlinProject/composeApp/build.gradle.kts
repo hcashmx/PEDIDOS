@@ -144,6 +144,8 @@ compose.desktop {
         mainClass = "com.cyssoftware.effyflow.MainKt"
 
         nativeDistributions {
+            // SQLite JDBC and sync authentication need these bundled Java modules.
+            modules("java.sql", "java.naming")
             targetFormats(TargetFormat.Msi)
             packageName = "EffyFlow"
             packageVersion = effyFlowVersion.get()
