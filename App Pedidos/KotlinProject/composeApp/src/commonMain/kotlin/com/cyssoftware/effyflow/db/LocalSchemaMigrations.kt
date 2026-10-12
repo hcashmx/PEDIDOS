@@ -72,6 +72,24 @@ object LocalSchemaMigrations {
             }
         }
         driver.execute(null, "CREATE TABLE IF NOT EXISTS pedido_estado_pendiente (historial_id INTEGER NOT NULL PRIMARY KEY, remote_id INTEGER NOT NULL, uuid_local TEXT, estado_id INTEGER NOT NULL, estado TEXT NOT NULL, fecha_cambio TEXT NOT NULL)", 0)
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS revisiones_comerciales (
+            revision_id TEXT NOT NULL PRIMARY KEY, version_esquema INTEGER NOT NULL,
+            publicada_en TEXT NOT NULL, referencia_comercial TEXT NOT NULL,
+            huella_sha256 TEXT NOT NULL, datos_json TEXT NOT NULL, descargada_en TEXT NOT NULL)""", 0)
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS cotizaciones (
+            uuid_local TEXT NOT NULL PRIMARY KEY, usuario_autor_id INTEGER NOT NULL,
+            agente_id INTEGER NOT NULL, cliente_id INTEGER NOT NULL, fecha_comercial TEXT NOT NULL,
+            capturada_en TEXT NOT NULL, revision_comercial_id TEXT NOT NULL,
+            revision_huella_sha256 TEXT NOT NULL,
+            documento_solicitado TEXT NOT NULL CHECK (documento_solicitado IN ('FACTURA','REMISION')),
+            observaciones TEXT, estado_local TEXT NOT NULL, estado_comercial_erp TEXT,
+            modificado_en TEXT NOT NULL, id_erp INTEGER, version_erp INTEGER,
+            subtotal_referencial TEXT NOT NULL DEFAULT '0')""", 0)
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS cotizacion_renglones (
+            uuid_local TEXT NOT NULL, numero INTEGER NOT NULL, producto_id INTEGER NOT NULL,
+            presentacion_id INTEGER, cantidad TEXT NOT NULL, precio_referencia TEXT NOT NULL,
+            descuento_solicitado TEXT NOT NULL DEFAULT '0', PRIMARY KEY (uuid_local,numero),
+            FOREIGN KEY (uuid_local) REFERENCES cotizaciones(uuid_local) ON DELETE CASCADE)""", 0)
         migrateOfflineAuthentication(driver)
     }
 

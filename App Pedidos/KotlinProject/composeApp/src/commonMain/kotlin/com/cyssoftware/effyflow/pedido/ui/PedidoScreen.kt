@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 fun PedidoScreen(
     onBack: () -> Unit, // 👈 nuevo callback para volver
     onNuevoPedido: () -> Unit,
+    onCotizaciones: () -> Unit = {},
     onPedidosDia: () -> Unit,
     onSincronizacion: () -> Unit,
     onReimpresion: () -> Unit
@@ -118,6 +119,9 @@ fun PedidoScreen(
                             color = MaterialTheme.colorScheme.primary,
                             onClick = onNuevoPedido
                         )
+
+                        PedidoButton(text = "Cotizaciones", icon = Icons.Default.Description,
+                            color = Color(0xFF6A4C93), onClick = onCotizaciones)
 
                         PedidoButton(
                             text = "Pedidos del Día",

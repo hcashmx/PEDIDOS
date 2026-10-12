@@ -31,6 +31,8 @@ import com.cyssoftware.effyflow.pedido.sincronizacion.viewModel.SyncViewModel
 import com.cyssoftware.effyflow.ticket.TicketRepository
 import com.cyssoftware.effyflow.ticket.TicketScreen
 import com.cyssoftware.effyflow.ticket.TicketViewModel
+import com.cyssoftware.effyflow.cotizacion.CotizacionRepository
+import com.cyssoftware.effyflow.cotizacion.CotizacionesScreen
 
 @Composable
 fun App() {
@@ -40,6 +42,7 @@ fun App() {
     val ticketRepository = remember { TicketRepository() }
     val pedidoRepository = remember { PedidoRepository() }
     val pedidosDiaRepository = remember { PedidosDiaRepository() }
+    val cotizacionRepository = remember { CotizacionRepository() }
     var globalDataRefreshKey by remember { mutableStateOf(0) }
     val triggerGlobalRefresh = { globalDataRefreshKey++ }
     // 2. Estados de la Sesión
@@ -196,6 +199,7 @@ fun App() {
                         }
                     },
                     onNuevoPedido = { navController.navigate("nuevo_pedido") },
+                    onCotizaciones = { navController.navigate("cotizaciones") },
                     onPedidosDia = { navController.navigate("pedidos_dia") },
                     onSincronizacion = { navController.navigate("sync") },
                     onReimpresion = { navController.navigate("reimpresion") }
@@ -243,6 +247,24 @@ fun App() {
                     // Fallback por seguridad
                     SimpleScreen("Cargando datos del usuario...")
                 }
+            }
+        }
+
+        composable("cotizaciones") {
+            val userId = usuarioIdLogueado
+            if (userId == null) {
+                SimpleScreen("Inicia sesión para consultar Cotizaciones.")
+            } else {
+                val agentId = remember(userId) { pedidoRepository.getAgentePorUsuario(userId)?.id_agente }
+                CotizacionesScreen(
+                    repository = cotizacionRepository,
+                    usuarioId = userId,
+                    agenteId = agentId,
+                    baseUrl = configRepository.requireBaseUrl(),
+                    getToken = { loginRepository.getSyncTokensForUser(userId) },
+                    saveTokens = { access, refresh -> loginRepository.updateTokensForUser(userId, access, refresh) },
+                    onBack = { navController.popBackStack() }
+                )
             }
         }
 

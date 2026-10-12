@@ -1,0 +1,81 @@
+CREATE TABLE revisiones_comerciales (
+    revision_id TEXT NOT NULL PRIMARY KEY,
+    version_esquema INTEGER NOT NULL,
+    publicada_en TEXT NOT NULL,
+    referencia_comercial TEXT NOT NULL,
+    huella_sha256 TEXT NOT NULL,
+    datos_json TEXT NOT NULL,
+    descargada_en TEXT NOT NULL
+);
+
+insertRevision:
+INSERT OR IGNORE INTO revisiones_comerciales VALUES (?, ?, ?, ?, ?, ?, ?);
+
+getRevision:
+SELECT * FROM revisiones_comerciales WHERE revision_id = ?;
+
+getRevisiones:
+SELECT * FROM revisiones_comerciales ORDER BY publicada_en DESC;
+
+deleteRevision:
+DELETE FROM revisiones_comerciales WHERE revision_id = ? AND revision_id != :activeId
+  AND NOT EXISTS (SELECT 1 FROM cotizaciones WHERE revision_comercial_id = :revisionId AND estado_local != 'SINCRONIZADA');
+
+CREATE TABLE cotizaciones (
+    uuid_local TEXT NOT NULL PRIMARY KEY,
+    usuario_autor_id INTEGER NOT NULL,
+    agente_id INTEGER NOT NULL,
+    cliente_id INTEGER NOT NULL,
+    fecha_comercial TEXT NOT NULL,
+    capturada_en TEXT NOT NULL,
+    revision_comercial_id TEXT NOT NULL,
+    revision_huella_sha256 TEXT NOT NULL,
+    documento_solicitado TEXT NOT NULL CHECK (documento_solicitado IN ('FACTURA', 'REMISION')),
+    observaciones TEXT,
+    estado_local TEXT NOT NULL,
+    estado_comercial_erp TEXT,
+    modificado_en TEXT NOT NULL,
+    id_erp INTEGER,
+    version_erp INTEGER,
+    subtotal_referencial TEXT NOT NULL DEFAULT '0'
+);
+
+CREATE TABLE cotizacion_renglones (
+    uuid_local TEXT NOT NULL,
+    numero INTEGER NOT NULL,
+    producto_id INTEGER NOT NULL,
+    presentacion_id INTEGER,
+    cantidad TEXT NOT NULL,
+    precio_referencia TEXT NOT NULL,
+    descuento_solicitado TEXT NOT NULL DEFAULT '0',
+    PRIMARY KEY (uuid_local, numero),
+    FOREIGN KEY (uuid_local) REFERENCES cotizaciones(uuid_local) ON DELETE CASCADE
+);
+
+insertCotizacion:
+INSERT INTO cotizaciones VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateCotizacion:
+UPDATE cotizaciones SET cliente_id=?, fecha_comercial=?, documento_solicitado=?, observaciones=?,
+  estado_local=?, modificado_en=?, subtotal_referencial=? WHERE uuid_local=? AND usuario_autor_id=? AND estado_local IN ('BORRADOR_LOCAL','ERROR_REINTENTABLE');
+
+listCotizaciones:
+SELECT * FROM cotizaciones ORDER BY modificado_en DESC;
+
+findCotizacion:
+SELECT * FROM cotizaciones WHERE uuid_local=?;
+
+deleteCotizacionRenglones:
+DELETE FROM cotizacion_renglones WHERE uuid_local=?;
+
+insertCotizacionRenglon:
+INSERT INTO cotizacion_renglones VALUES (?, ?, ?, ?, ?, ?, ?);
+
+getCotizacionRenglones:
+SELECT * FROM cotizacion_renglones WHERE uuid_local=? ORDER BY numero;
+
+activeRevisionId:
+SELECT value FROM app_config WHERE key='revision_comercial_activa';
+
+setActiveRevision:
+INSERT OR REPLACE INTO app_config(key,value) VALUES ('revision_comercial_activa',?);
