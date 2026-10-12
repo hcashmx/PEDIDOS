@@ -82,7 +82,6 @@ private fun CotizacionEditor(repository: CotizacionRepository, revision: Paquete
     val clients = data?.get("clientes_lista")?.jsonArray.orEmpty().filter { it.jsonObject["activo"]?.jsonPrimitive?.booleanOrNull != false }
     val products = data?.get("productos")?.jsonArray.orEmpty().filter { it.jsonObject["activo"]?.jsonPrimitive?.booleanOrNull != false }
     val presentations = data?.get("presentaciones")?.jsonArray.orEmpty()
-    val prices = data?.get("precios_lista")?.jsonArray.orEmpty()
     var clientId by remember(original) { mutableStateOf(original?.clienteId) }
     var productId by remember(original) { mutableStateOf(original?.renglones?.firstOrNull()?.productoId) }
     var presentationId by remember(original) { mutableStateOf(original?.renglones?.firstOrNull()?.presentacionId) }
@@ -118,14 +117,23 @@ private fun CotizacionEditor(repository: CotizacionRepository, revision: Paquete
             }
         }
         val chosenClient = clients.firstOrNull { it.jsonObject.long("id_cliente") == clientId }?.jsonObject
-        val priceType = chosenClient?.long("numero_precio_id")
         val chosenProduct = products.firstOrNull { it.jsonObject.long("id_producto") == productId }?.jsonObject
-        val basePrice = prices.firstOrNull { it.jsonObject.long("producto_id") == productId && it.jsonObject.long("tipo_precio_id") == priceType }
-            ?.jsonObject?.get("precio")?.jsonPrimitive?.content ?: "0"
         val prodPresentations = presentations.filter { it.jsonObject.long("producto_id") == productId }
-        val factor = prodPresentations.firstOrNull { it.jsonObject.long("id_presentacion") == presentationId }
-            ?.jsonObject?.get("factor_conversion")?.jsonPrimitive?.content ?: "1"
-        val unitPrice = runCatching { (basePrice.toBigDecimal() * factor.toBigDecimal()).stripTrailingZeros().toPlainString() }.getOrDefault("0")
+        val calculation = if (pinnedRevision != null && clientId != null && productId != null) runCatching {
+            repository.calcularPrecio(pinnedRevision.id, agenteId, checkNotNull(clientId), checkNotNull(productId),
+                presentationId, quantity, date, discount)
+        }.getOrNull() else null
+        val projectedTotal = if (calculation != null) runCatching {
+            val projected = quoteLines.toMutableList()
+            val activeLine = RenglonCotizacion(checkNotNull(productId), presentationId, quantity,
+                calculation.offeredUnitPrice.toPlainString(), discount)
+            if (editingLineIndex != null && editingLineIndex!! in projected.indices) projected[editingLineIndex!!] = activeLine
+            else projected.add(activeLine)
+            projected.fold(java.math.BigDecimal.ZERO) { sum, line ->
+                sum + repository.calcularPrecio(pinnedRevision!!.id, agenteId, checkNotNull(clientId), line.productoId,
+                    line.presentacionId, line.cantidad, date, line.descuentoSolicitado).netLineAmount
+            }
+        }.getOrNull() else null
         if (prodPresentations.isNotEmpty()) {
             Text("Presentación disponible en revisión:")
             prodPresentations.forEach { row ->
@@ -136,7 +144,19 @@ private fun CotizacionEditor(repository: CotizacionRepository, revision: Paquete
                 }
             }
         }
-        Text("Precio referencial según la lista de la revisión: $unitPrice")
+        Text("Precio de lista: ${calculation?.listUnitPrice?.toPlainString() ?: "—"}")
+        if (calculation != null) {
+            val volumeText = if (calculation.volumeApplied) "Volumen aplicado · regla ${calculation.volumeRuleId}" else "Sin tramo de volumen"
+            val promotionText = if (calculation.promotionApplied) "Promoción ${calculation.promotionId} · prioridad ${calculation.promotionPriority}" else "Sin promoción aplicable"
+            Text("$volumeText · $promotionText")
+            Text("Factor ${calculation.presentationFactor.toPlainString()} · cantidad base ${calculation.baseQuantity.toPlainString()}")
+            Text("Precio unitario referencial: ${calculation.offeredUnitPrice.toPlainString()}")
+            Text("Descuento: ${calculation.manualDiscountPercent.toPlainString()}% · ${calculation.manualDiscountAmount.toPlainString()}")
+            Text("Importe referencial del renglón: ${calculation.netLineAmount.toPlainString()}")
+            projectedTotal?.let { Text("Total comercial referencial: ${it.toPlainString()}") }
+        } else if (productId != null && clientId != null) {
+            Text("No se puede resolver el precio con esta revisión y los datos capturados.", color = MaterialTheme.colorScheme.error)
+        }
         if (quoteLines.isNotEmpty()) {
             Text("Renglones guardados: ${quoteLines.size}")
             quoteLines.forEachIndexed { index, line ->
@@ -162,9 +182,10 @@ private fun CotizacionEditor(repository: CotizacionRepository, revision: Paquete
         }
         OutlinedTextField(notes, { notes = it }, label = { Text("Observaciones") }, modifier = Modifier.fillMaxWidth())
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
-        Button(enabled = pinnedRevision != null && agenteId != null && clientId != null && productId != null && unitPrice.toBigDecimalOrNull()?.signum() == 1, onClick = {
+        Button(enabled = pinnedRevision != null && agenteId != null && clientId != null && productId != null && calculation != null, onClick = {
             runCatching {
-                val currentLine = RenglonCotizacion(checkNotNull(productId), presentationId, quantity, unitPrice, discount)
+                val currentLine = RenglonCotizacion(checkNotNull(productId), presentationId, quantity,
+                    checkNotNull(calculation).offeredUnitPrice.toPlainString(), discount, pinnedRevision!!.id, pinnedRevision.huellaSha256)
                 val lines = quoteLines.toMutableList()
                 val at = editingLineIndex
                 if (at != null && at in lines.indices) lines[at] = currentLine else lines.add(currentLine)

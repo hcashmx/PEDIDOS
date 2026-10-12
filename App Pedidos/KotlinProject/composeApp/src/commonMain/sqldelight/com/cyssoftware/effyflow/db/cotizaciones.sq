@@ -48,6 +48,8 @@ CREATE TABLE cotizacion_renglones (
     cantidad TEXT NOT NULL,
     precio_referencia TEXT NOT NULL,
     descuento_solicitado TEXT NOT NULL DEFAULT '0',
+    revision_comercial_id TEXT NOT NULL DEFAULT '',
+    revision_huella_sha256 TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (uuid_local, numero),
     FOREIGN KEY (uuid_local) REFERENCES cotizaciones(uuid_local) ON DELETE CASCADE
 );
@@ -69,7 +71,7 @@ deleteCotizacionRenglones:
 DELETE FROM cotizacion_renglones WHERE uuid_local=?;
 
 insertCotizacionRenglon:
-INSERT INTO cotizacion_renglones VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO cotizacion_renglones VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 getCotizacionRenglones:
 SELECT * FROM cotizacion_renglones WHERE uuid_local=? ORDER BY numero;

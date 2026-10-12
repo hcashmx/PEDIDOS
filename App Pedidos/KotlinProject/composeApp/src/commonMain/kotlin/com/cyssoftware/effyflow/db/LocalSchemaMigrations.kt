@@ -90,6 +90,19 @@ object LocalSchemaMigrations {
             presentacion_id INTEGER, cantidad TEXT NOT NULL, precio_referencia TEXT NOT NULL,
             descuento_solicitado TEXT NOT NULL DEFAULT '0', PRIMARY KEY (uuid_local,numero),
             FOREIGN KEY (uuid_local) REFERENCES cotizaciones(uuid_local) ON DELETE CASCADE)""", 0)
+        listOf(
+            "ALTER TABLE cotizacion_renglones ADD COLUMN revision_comercial_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE cotizacion_renglones ADD COLUMN revision_huella_sha256 TEXT NOT NULL DEFAULT ''"
+        ).forEach { statement ->
+            try { driver.execute(null, statement, 0) }
+            catch (e: Exception) { if (e.message?.contains("duplicate column name", ignoreCase = true) != true) throw e }
+        }
+        // Backfill lineage only; preserve the originally captured price and discount byte-for-byte.
+        driver.execute(null, """UPDATE cotizacion_renglones SET
+            revision_comercial_id = (SELECT revision_comercial_id FROM cotizaciones WHERE cotizaciones.uuid_local=cotizacion_renglones.uuid_local),
+            revision_huella_sha256 = (SELECT revision_huella_sha256 FROM cotizaciones WHERE cotizaciones.uuid_local=cotizacion_renglones.uuid_local)
+            WHERE (revision_comercial_id='' OR revision_huella_sha256='')
+            AND EXISTS (SELECT 1 FROM cotizaciones WHERE cotizaciones.uuid_local=cotizacion_renglones.uuid_local)""", 0)
         migrateOfflineAuthentication(driver)
     }
 

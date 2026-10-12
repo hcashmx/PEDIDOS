@@ -17,6 +17,7 @@ import kotlinx.serialization.json.*
 import java.time.OffsetDateTime
 import java.time.LocalDate
 import java.time.ZoneId
+import java.math.BigDecimal
 
 @Serializable
 data class PaqueteRevisionComercial(
@@ -33,7 +34,30 @@ data class CotizacionLocal(
 
 data class RenglonCotizacion(
     val productoId: Long, val presentacionId: Long?, val cantidad: String,
-    val precioReferencia: String, val descuentoSolicitado: String = "0"
+    val precioReferencia: String, val descuentoSolicitado: String = "0",
+    val revisionId: String = "", val revisionHuella: String = ""
+)
+
+/** Exact Sync DTO shape prepared locally; COT-MOBILE-04C owns serialization and transmission. */
+data class CotizacionCapturaPreparada(
+    val uuid: String,
+    val fechaComercial: String,
+    val revisionComercialId: String,
+    val revisionHuellaSha256: String,
+    val dispositivoId: String,
+    val agenteId: Long?,
+    val clienteId: Long,
+    val documentoSolicitado: String,
+    val observaciones: String?,
+    val renglones: List<RenglonCapturaPreparada>
+)
+
+data class RenglonCapturaPreparada(
+    val productoId: Long,
+    val presentacionId: Long?,
+    val cantidad: BigDecimal,
+    val precioReferencia: BigDecimal,
+    val descuentoSolicitado: BigDecimal
 )
 
 class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.database) {
@@ -85,12 +109,24 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
         return runCatching { validar(packageData); packageData }.getOrNull()
     }
 
+    fun calcularPrecio(revisionId: String, usuarioAgenteId: Long?, clienteId: Long, productoId: Long,
+                       presentacionId: Long?, cantidad: String, fecha: String, descuento: String): CotizacionPricing.Result {
+        val packageData = checkNotNull(revision(revisionId)) { "La revisión del borrador no está disponible." }
+        return CotizacionPricing(packageData.datosComerciales).calculate(clienteId, usuarioAgenteId, productoId,
+            presentacionId, cantidad.toBigDecimal(), LocalDate.parse(fecha), descuento.toBigDecimal())
+    }
+
     fun guardarBorrador(usuarioId: Long, agenteId: Long, clienteId: Long, fecha: String, documento: String,
                         observaciones: String?, renglones: List<RenglonCotizacion>, uuid: String? = null) {
         require(usuarioId > 0 && agenteId > 0 && clienteId > 0 && renglones.isNotEmpty())
         require(documento == "FACTURA" || documento == "REMISION")
         val id = uuid ?: uuid4().toString()
         val previousDraft = db.cotizacionesQueries.findCotizacion(id).executeAsOneOrNull()
+        if (previousDraft != null) {
+            require(previousDraft.usuario_autor_id == usuarioId) { "La Cotización pertenece a otro usuario." }
+            require(previousDraft.agente_id == agenteId) { "La Cotización conserva el agente que la capturó." }
+            require(previousDraft.estado_local in listOf("BORRADOR_LOCAL", "ERROR_REINTENTABLE")) { "Sólo se editan borradores no enviados." }
+        }
         val pinnedRevision = if (previousDraft != null) revision(previousDraft.revision_comercial_id) else revisionActiva()
         val revision = checkNotNull(pinnedRevision) {
             "La revisión comercial original no está disponible."
@@ -99,10 +135,12 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
         val publishedDate = OffsetDateTime.parse(revision.publicadaEn).atZoneSameInstant(ZoneId.of("America/Mexico_City")).toLocalDate()
         require(!localDate.isBefore(publishedDate)) { "La fecha comercial no puede ser anterior a la publicación de la revisión." }
         val now = Clock.System.now().toString()
-        val total = renglones.sumOf { line ->
-            val gross = line.cantidad.toBigDecimal() * line.precioReferencia.toBigDecimal()
-            gross * (java.math.BigDecimal.ONE - line.descuentoSolicitado.toBigDecimal().divide(java.math.BigDecimal("100")))
-        }.toPlainString()
+        val calculated = renglones.map { line ->
+            val result = CotizacionPricing(revision.datosComerciales).calculate(clienteId, agenteId, line.productoId,
+                line.presentacionId, line.cantidad.toBigDecimal(), localDate, line.descuentoSolicitado.toBigDecimal())
+            line.copy(precioReferencia = result.offeredUnitPrice.toPlainString(), revisionId = revision.id, revisionHuella = revision.huellaSha256) to result
+        }
+        val total = calculated.fold(java.math.BigDecimal.ZERO) { sum, item -> sum + item.second.netLineAmount }.toPlainString()
         db.transaction {
             val previous = previousDraft
             if (previous == null) {
@@ -116,23 +154,9 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
                 db.cotizacionesQueries.updateCotizacion(clienteId, fecha, documento, observaciones, "BORRADOR_LOCAL", now, total, id, usuarioId)
             }
             db.cotizacionesQueries.deleteCotizacionRenglones(id)
-            renglones.forEachIndexed { index, line ->
-                require(line.cantidad.toBigDecimal() > java.math.BigDecimal.ZERO && line.precioReferencia.toBigDecimal() >= java.math.BigDecimal.ZERO)
-                require(line.descuentoSolicitado.toBigDecimal() >= java.math.BigDecimal.ZERO && line.descuentoSolicitado.toBigDecimal() <= java.math.BigDecimal("100"))
-                val product = revision.datosComerciales.getValue("productos").jsonArray.firstOrNull {
-                    it.jsonObject["id_producto"]?.jsonPrimitive?.longOrNull == line.productoId
-                }?.jsonObject
-                require(product?.get("activo")?.jsonPrimitive?.booleanOrNull != false) { "El producto no está activo en la revisión." }
-                val maxDiscount = product?.get("descuento_maximo")?.jsonPrimitive?.content?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
-                require(line.descuentoSolicitado.toBigDecimal() <= maxDiscount) { "El descuento excede el máximo local conocido ($maxDiscount%)." }
-                if (line.presentacionId != null) {
-                    require(revision.datosComerciales.getValue("presentaciones").jsonArray.any { row ->
-                        row.jsonObject["id_presentacion"]?.jsonPrimitive?.longOrNull == line.presentacionId &&
-                            row.jsonObject["producto_id"]?.jsonPrimitive?.longOrNull == line.productoId
-                    }) { "La presentación no corresponde al producto de la revisión." }
-                }
+            calculated.forEachIndexed { index, (line, _) ->
                 db.cotizacionesQueries.insertCotizacionRenglon(id, index.toLong(), line.productoId, line.presentacionId,
-                    line.cantidad, line.precioReferencia, line.descuentoSolicitado)
+                    line.cantidad, line.precioReferencia, line.descuentoSolicitado, revision.id, revision.huellaSha256)
             }
         }
     }
@@ -141,10 +165,34 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
         .filter { usuarioId == null || it.usuario_autor_id == usuarioId }.map { toModel(it.uuid_local) }
     fun buscar(uuid: String): CotizacionLocal = toModel(uuid)
 
+    fun prepararCaptura(uuid: String): CotizacionCapturaPreparada {
+        val quote = buscar(uuid)
+        require(quote.renglones.isNotEmpty()) { "La Cotización no tiene renglones." }
+        require(quote.renglones.all { it.revisionId == quote.revisionId && it.revisionHuella == quote.huella }) {
+            "Los renglones no pertenecen a la revisión histórica de la Cotización."
+        }
+        return CotizacionCapturaPreparada(
+            uuid = quote.uuid,
+            fechaComercial = quote.fechaComercial,
+            revisionComercialId = quote.revisionId,
+            revisionHuellaSha256 = quote.huella,
+            dispositivoId = dispositivoId(),
+            agenteId = quote.agenteId,
+            clienteId = quote.clienteId,
+            documentoSolicitado = quote.documento,
+            observaciones = quote.observaciones,
+            renglones = quote.renglones.map {
+                RenglonCapturaPreparada(it.productoId, it.presentacionId, it.cantidad.toBigDecimal(),
+                    it.precioReferencia.toBigDecimal(), it.descuentoSolicitado.toBigDecimal())
+            }
+        )
+    }
+
     private fun toModel(uuid: String): CotizacionLocal {
         val q = checkNotNull(db.cotizacionesQueries.findCotizacion(uuid).executeAsOneOrNull())
         val lines = db.cotizacionesQueries.getCotizacionRenglones(uuid).executeAsList().map {
-            RenglonCotizacion(it.producto_id, it.presentacion_id, it.cantidad, it.precio_referencia, it.descuento_solicitado)
+            RenglonCotizacion(it.producto_id, it.presentacion_id, it.cantidad, it.precio_referencia,
+                it.descuento_solicitado, it.revision_comercial_id, it.revision_huella_sha256)
         }
         return CotizacionLocal(q.uuid_local, q.usuario_autor_id, q.agente_id, q.cliente_id, q.fecha_comercial,
             q.revision_comercial_id, q.revision_huella_sha256, q.documento_solicitado, q.observaciones,
@@ -164,14 +212,39 @@ class CotizacionRepository(private val db: EffyDatabase = DatabaseProvider.datab
         val productIds = p.datosComerciales.getValue("productos").jsonArray.map { it.jsonObject.requiredLong("id_producto") }.toSet()
         val unitIds = p.datosComerciales.getValue("unidades").jsonArray.map { it.jsonObject.requiredLong("id_unidad") }.toSet()
         val typeIds = p.datosComerciales.getValue("tipos_precio").jsonArray.map { it.jsonObject.requiredLong("id_tipo_precio") }.toSet()
+        val promotionIds = p.datosComerciales.getValue("promociones").jsonArray.map { it.jsonObject.requiredLong("id") }.toSet()
         require(clientIds.size == p.datosComerciales.getValue("clientes_lista").jsonArray.size)
         require(productIds.size == p.datosComerciales.getValue("productos").jsonArray.size)
+        require(unitIds.size == p.datosComerciales.getValue("unidades").jsonArray.size)
         require(typeIds.size == p.datosComerciales.getValue("tipos_precio").jsonArray.size)
+        require(promotionIds.size == p.datosComerciales.getValue("promociones").jsonArray.size)
+        p.datosComerciales.getValue("clientes_lista").jsonArray.forEach { row ->
+            require(row.jsonObject.requiredLong("numero_precio_id") in typeIds) { "Un cliente referencia una lista inexistente." }
+        }
+        p.datosComerciales.getValue("productos").jsonArray.forEach { row ->
+            require(row.jsonObject.requiredLong("id_unidad") in unitIds) { "Un producto referencia una unidad inexistente." }
+        }
         p.datosComerciales.getValue("precios_lista").jsonArray.forEach { row ->
             require(row.jsonObject.requiredLong("producto_id") in productIds && row.jsonObject.requiredLong("tipo_precio_id") in typeIds)
         }
         p.datosComerciales.getValue("presentaciones").jsonArray.forEach { row ->
             require(row.jsonObject.requiredLong("producto_id") in productIds && row.jsonObject.requiredLong("id_unidad") in unitIds)
+        }
+        p.datosComerciales.getValue("precios_volumen").jsonArray.forEach { row ->
+            val rule = row.jsonObject
+            require(rule.requiredLong("producto_id") in productIds && rule.requiredLong("tipo_precio_destino_id") in typeIds)
+            rule["tipo_precio_origen_id"]?.jsonPrimitive?.longOrNull?.let { require(it in typeIds) }
+        }
+        p.datosComerciales.getValue("promociones_productos").jsonArray.forEach { row ->
+            val scope = row.jsonObject
+            require(scope.requiredLong("promocion_id") in promotionIds && scope.requiredLong("producto_id") in productIds)
+        }
+        p.datosComerciales.getValue("promociones_listas").jsonArray.forEach { row ->
+            val scope = row.jsonObject
+            require(scope.requiredLong("promocion_id") in promotionIds && scope.requiredLong("tipo_precio_id") in typeIds)
+        }
+        p.datosComerciales.getValue("impuestos_producto").jsonArray.forEach { row ->
+            require(row.jsonObject.requiredLong("id_producto") in productIds)
         }
         p.datosComerciales.getValue("kits_composicion").jsonArray.forEach { row ->
             require(row.jsonObject.requiredLong("id_producto_kit") in productIds && row.jsonObject.requiredLong("id_producto_componente") in productIds)
