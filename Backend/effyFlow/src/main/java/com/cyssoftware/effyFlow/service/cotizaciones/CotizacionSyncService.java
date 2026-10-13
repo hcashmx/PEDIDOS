@@ -143,7 +143,7 @@ public class CotizacionSyncService {
         String message;
         Map<String, Object> details = new LinkedHashMap<>();
         JsonNode raw = ex.respuesta().get("detalleErp") instanceof JsonNode n ? n : null;
-        String erpMessage = raw == null ? "" : raw.path("message").asText(raw.path("error").asText(""));
+        String erpCode = raw == null ? "" : raw.path("codigo").asText("");
         switch (status) {
             case 400, 422 -> {
                 classification = "SOLICITUD_INVALIDA";
@@ -152,9 +152,13 @@ public class CotizacionSyncService {
             }
             case 401 -> {
                 classification = "AUTENTICACION_TECNICA_ERP".equals(ex.origen())
-                        ? "CREDENCIAL_TECNICA_ERP_INVALIDA" : clasificarAuth(erpMessage);
-                message = "La autenticación ERP o la aserción de identidad fue rechazada; conserva la captura y autentica de nuevo si corresponde.";
-                details.put("requiereAutenticacion", true);
+                        ? "CREDENCIAL_TECNICA_ERP_INVALIDA"
+                        : "ASERCION_RS256_INVALIDA_O_VENCIDA".equals(erpCode)
+                                ? erpCode : "AUTENTICACION_ERP_RECHAZADA";
+                message = "ASERCION_RS256_INVALIDA_O_VENCIDA".equals(classification)
+                        ? "ERP rechazó la aserción comercial; conserva la captura y el mismo UUID."
+                        : "ERP rechazó su autenticación; conserva la captura y el mismo UUID.";
+                details.put("requiereAutenticacion", false);
             }
             case 403 -> { classification = "SIN_AUTORIZACION"; message = "El vendedor o la cuenta técnica no tiene autorización ERP para crear o recuperar esta Cotización."; }
             case 409 -> { classification = "CONFLICTO_COMERCIAL_O_IDEMPOTENCIA"; message = "ERP detectó un conflicto permanente de UUID, revisión o captura; no se reintentará automáticamente."; }
@@ -165,15 +169,6 @@ public class CotizacionSyncService {
             }
         }
         return new CotizacionSyncException(status == 0 ? 502 : status, classification, retryable, message, details);
-    }
-
-    private String clasificarAuth(String message) {
-        String normalized = message.toLowerCase(java.util.Locale.ROOT);
-        if (normalized.contains("aserción") || normalized.contains("assertion") || normalized.contains("sync no es válida") || normalized.contains("ya expir"))
-            return "ASERCION_RS256_INVALIDA_O_VENCIDA";
-        if (normalized.contains("técnica") || normalized.contains("tecnica") || normalized.contains("credencial"))
-            return "CREDENCIAL_TECNICA_ERP_INVALIDA";
-        return "AUTENTICACION_ERP_RECHAZADA";
     }
 
     private UUID uuid(String value, String field) {

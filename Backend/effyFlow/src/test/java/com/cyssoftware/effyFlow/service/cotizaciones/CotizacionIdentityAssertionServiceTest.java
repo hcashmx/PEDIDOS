@@ -1,10 +1,14 @@
 package com.cyssoftware.effyFlow.service.cotizaciones;
 
 import com.cyssoftware.effyFlow.service.pedido.SyncService;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Jwts;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
@@ -88,6 +92,46 @@ class CotizacionIdentityAssertionServiceTest {
         assertEquals(first.requestSha256(), second.requestSha256());
         assertEquals(first.uuidCotizacion(), second.uuidCotizacion());
         assertNotEquals(first.jti(), second.jti());
+    }
+
+    @Test void vectoresCompartidosConErpProducenJsonYHashIdenticos() throws Exception {
+        ObjectMapper exact = mapper.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+        try (var fixture = getClass().getResourceAsStream("/cotizaciones/rs256-canonical-vectors.json")) {
+            assertNotNull(fixture);
+            JsonNode vectors = mapper.readTree(fixture);
+            for (JsonNode vector : vectors) {
+                JsonNode payload = exact.readTree(vector.path("inputJson").asText());
+                String canonical = service.canonicalJson(payload);
+                assertEquals(vector.path("canonicalJson").asText(), canonical, vector.path("name").asText());
+                String hash = java.util.HexFormat.of().formatHex(
+                        MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
+                assertEquals(vector.path("sha256").asText(), hash, vector.path("name").asText());
+            }
+        }
+    }
+
+    @Test void firmaElVectorUatConIdentidadYHashEsperados() throws Exception {
+        JsonNode vector;
+        try (var fixture = getClass().getResourceAsStream("/cotizaciones/rs256-canonical-vectors.json")) {
+            vector = mapper.readTree(fixture).get(0);
+        }
+        JsonNode payload = mapper.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                .readTree(vector.path("inputJson").asText());
+        UUID uatUuid = UUID.fromString(payload.path("uuid").asText());
+        UUID uatRevision = UUID.fromString(payload.path("revisionComercialId").asText());
+        when(users.identidadCotizaciones("vendedor@example.test"))
+                .thenReturn(new SyncService.IdentidadComercial(28L, 73));
+        when(revisions.porId(uatRevision)).thenReturn(new RevisionComercialPaquete(uatRevision, 3,
+                java.time.OffsetDateTime.parse("2026-10-10T12:00:00Z"), "sha256:" + "c".repeat(64),
+                "c".repeat(64), mapper.createObjectNode().put("version_esquema", 3)));
+        var signed = service.emitir("vendedor@example.test",
+                new CotizacionIdentityAssertionService.SolicitudAsercion(uatUuid.toString(),
+                        uatRevision.toString(), device, payload));
+        var claims = Jwts.parser().verifyWith(keys.getPublic()).build().parseSignedClaims(signed.token()).getPayload();
+        assertEquals(28L, signed.usuarioErpId());
+        assertEquals(73, signed.agenteErpId());
+        assertEquals(vector.path("sha256").asText(), claims.get("requestSha256"));
+        assertEquals(uatUuid.toString(), claims.get("uuidCotizacion"));
     }
 
     @Test void firmaAlteradaAudienciaEquivocadaYAsersionExpiradaFallanVerificacion() throws Exception {

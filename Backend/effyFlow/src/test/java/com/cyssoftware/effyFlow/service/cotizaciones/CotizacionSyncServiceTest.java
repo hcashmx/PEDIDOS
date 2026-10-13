@@ -101,4 +101,21 @@ class CotizacionSyncServiceTest {
         assertEquals(504, timeout.status());
         assertEquals(true, timeout.body().get("reintentable"));
     }
+
+    @Test void distingueAsercionDeCredencialTecnicaSinPedirLoginAlVendedor() {
+        when(erp.crearCotizacion(any(), anyString())).thenThrow(new ErpCapturaException(401,
+                mapper.createObjectNode().put("codigo", "ASERCION_RS256_INVALIDA_O_VENCIDA")));
+        var assertion = assertThrows(CotizacionSyncException.class, () -> service.enviar("seller", request));
+        assertEquals(401, assertion.status());
+        assertEquals("ASERCION_RS256_INVALIDA_O_VENCIDA", assertion.body().get("resultado"));
+        assertEquals(false, assertion.body().get("reintentable"));
+        assertEquals(false, ((java.util.Map<?, ?>) assertion.body().get("detalle")).get("requiereAutenticacion"));
+
+        reset(erp);
+        when(erp.crearCotizacion(any(), anyString())).thenThrow(new ErpCapturaException(401, null,
+                "AUTENTICACION_TECNICA_ERP"));
+        var technical = assertThrows(CotizacionSyncException.class, () -> service.enviar("seller", request));
+        assertEquals("CREDENCIAL_TECNICA_ERP_INVALIDA", technical.body().get("resultado"));
+        assertEquals(false, technical.body().get("reintentable"));
+    }
 }

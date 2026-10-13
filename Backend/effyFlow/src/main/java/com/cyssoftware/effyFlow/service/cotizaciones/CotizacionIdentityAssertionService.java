@@ -1,11 +1,11 @@
 package com.cyssoftware.effyFlow.service.cotizaciones;
 
 import com.cyssoftware.effyFlow.service.pedido.SyncService;
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.jsonwebtoken.Jwts;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
@@ -103,23 +103,42 @@ public class CotizacionIdentityAssertionService {
 
     /** Hash para el futuro body ERP: objetos por nombre, arrays conservan orden, sin datos de transporte. */
     String canonicalJson(JsonNode payload) {
-        try { return mapper.writeValueAsString(canonicalizar(payload)); }
+        try {
+            StringWriter out = new StringWriter();
+            try (JsonGenerator generator = mapper.getFactory().createGenerator(out)) {
+                escribirCanonico(generator, payload);
+            }
+            return out.toString();
+        }
         catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No se pudo canonicalizar el payload."); }
     }
 
-    private JsonNode canonicalizar(JsonNode node) {
+    private void escribirCanonico(JsonGenerator generator, JsonNode node) throws java.io.IOException {
         if (node.isObject()) {
-            ObjectNode sorted = mapper.createObjectNode();
+            generator.writeStartObject();
             var names = new ArrayList<String>(); node.fieldNames().forEachRemaining(names::add);
             Collections.sort(names);
-            for (String name : names) sorted.set(name, canonicalizar(node.get(name)));
-            return sorted;
+            for (String name : names) {
+                generator.writeFieldName(name);
+                escribirCanonico(generator, node.get(name));
+            }
+            generator.writeEndObject();
+        } else if (node.isArray()) {
+            generator.writeStartArray();
+            for (JsonNode value : node) escribirCanonico(generator, value);
+            generator.writeEndArray();
+        } else if (node.isNumber()) {
+            var value = node.decimalValue();
+            generator.writeNumber(value.signum() == 0 ? "0" : value.stripTrailingZeros().toPlainString());
+        } else if (node.isTextual()) {
+            generator.writeString(node.textValue());
+        } else if (node.isBoolean()) {
+            generator.writeBoolean(node.booleanValue());
+        } else if (node.isNull()) {
+            generator.writeNull();
+        } else {
+            throw new IllegalArgumentException("Tipo JSON no admitido en la aserción.");
         }
-        if (node.isArray()) {
-            ArrayNode ordered = mapper.createArrayNode(); node.forEach(value -> ordered.add(canonicalizar(value)));
-            return ordered;
-        }
-        return node.deepCopy();
     }
 
     private void validarVinculosPayload(JsonNode payload, UUID uuid, UUID revision, Integer agenteId) {
