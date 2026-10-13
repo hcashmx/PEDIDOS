@@ -37,7 +37,6 @@ internal fun CotizacionEditor(
         if (original != null) repository.revision(original.revisionId) else revision
     }
     val pricing = remember(pinnedRevision?.id) { pinnedRevision?.let { CotizacionPricing(it.datosComerciales) } }
-    val presentations = pinnedRevision?.datosComerciales?.get("presentaciones")?.jsonArray.orEmpty()
     val quoteLines = remember(original?.uuid) {
         mutableStateListOf<RenglonCotizacion>().also { it.addAll(original?.renglones.orEmpty()) }
     }
@@ -137,11 +136,20 @@ internal fun CotizacionEditor(
             )
         }
 
-        val productPresentations = presentations.filter { it.jsonObject.long("producto_id") == productId }
-        val calculation = if (pricing != null && clientId != null && productId != null) runCatching {
-            pricing.calculate(clientId, agenteId, productId!!, presentationId,
-                quantity.replace(',', '.').toBigDecimal(), LocalDate.parse(date), discount.replace(',', '.').toBigDecimal())
-        }.getOrNull() else null
+        val presentationOptions = if (pricing != null && productId != null) runCatching {
+            pricing.presentationOptions(productId!!)
+        }.getOrElse { emptyList() } else emptyList()
+        val selectedPresentation = presentationOptions.firstOrNull { it.presentationId == presentationId }
+        val presentationCalculations = if (pricing != null && clientId != null && productId != null) {
+            presentationOptions.associate { option ->
+                option.key to if (option.selectable) runCatching {
+                    pricing.calculate(clientId, agenteId, productId!!, option.presentationId,
+                        quantity.replace(',', '.').toBigDecimal(), LocalDate.parse(date), discount.replace(',', '.').toBigDecimal())
+                } else null
+            }
+        } else emptyMap()
+        val calculationAttempt = selectedPresentation?.let { presentationCalculations[it.key] }
+        val calculation = calculationAttempt?.getOrNull()
         val projectedTotal = if (calculation != null && pricing != null && clientId != null) runCatching {
             val projected = quoteLines.toMutableList()
             val active = RenglonCotizacion(productId!!, presentationId, quantity.replace(',', '.'),
@@ -160,17 +168,25 @@ internal fun CotizacionEditor(
             }
         }.getOrNull() else null
 
-        if (productId != null && productPresentations.isNotEmpty()) {
+        if (productId != null) {
             Text("Presentación", style = MaterialTheme.typography.titleSmall)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = presentationId == null, onClick = { presentationId = null })
-                Text("Unidad base")
-            }
-            productPresentations.forEach { row ->
-                val item = row.jsonObject
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = presentationId == item.long("id_presentacion"), onClick = { presentationId = item.long("id_presentacion") })
-                    Text("${item.string("descripcion") ?: "Presentación ${item.long("id_presentacion")}"} · factor ${item["factor_conversion"]?.jsonPrimitive?.content ?: "1"}")
+            presentationOptions.forEach { option ->
+                val resolutionError = presentationCalculations[option.key]?.exceptionOrNull()?.message
+                val enabled = option.selectable && resolutionError == null
+                key(option.key) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = presentationId == option.presentationId,
+                                enabled = enabled,
+                                onClick = { if (enabled) presentationId = option.presentationId }
+                            )
+                            Text(option.label)
+                        }
+                        (option.unavailableReason ?: resolutionError)?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
         }
@@ -188,7 +204,10 @@ internal fun CotizacionEditor(
                 }
             }
         } else if (productId != null && clientId != null) {
-            Text("No se puede resolver el precio con la revisión fijada y estos datos.", color = MaterialTheme.colorScheme.error)
+            val reason = selectedPresentation?.unavailableReason
+                ?: calculationAttempt?.exceptionOrNull()?.message
+                ?: "No se puede resolver el precio con la revisión fijada y estos datos."
+            Text(reason, color = MaterialTheme.colorScheme.error)
         }
 
         if (quoteLines.isNotEmpty()) {

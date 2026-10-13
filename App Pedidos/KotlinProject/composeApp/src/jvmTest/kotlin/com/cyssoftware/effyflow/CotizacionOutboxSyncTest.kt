@@ -30,17 +30,18 @@ class CotizacionOutboxSyncTest {
     private data class Fixture(val driver: JdbcSqliteDriver, val db: EffyDatabase,
                                val repo: CotizacionRepository, val queue: CotizacionOutboxSync, val uuid: String, val revision: String)
 
-    private suspend fun fixture(): Fixture {
+    private suspend fun fixture(commercialData: String = commercial, presentationId: Long? = null): Fixture {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         EffyDatabase.Schema.create(driver)
         LocalSchemaMigrations.apply(driver)
         val db = EffyDatabase(driver)
         val repo = CotizacionRepository(db)
         val revision = UUID.randomUUID().toString()
-        val packageJson = """{"id":"$revision","versionEsquema":3,"publicadaEn":"2026-10-01T12:00:00Z","referenciaComercial":"sha256:$commercialHash","huellaSha256":"$commercialHash","datosComerciales":$commercial}"""
+        val digest = sha(commercialData)
+        val packageJson = """{"id":"$revision","versionEsquema":3,"publicadaEn":"2026-10-01T12:00:00Z","referenciaComercial":"sha256:$digest","huellaSha256":"$digest","datosComerciales":$commercialData}"""
         jsonClient(packageJson).use { repo.descargarRevisionActual(it, "https://sync.test") }
         repo.guardarBorrador(42, 20, 30, "2026-10-02", "FACTURA", "offline",
-            listOf(RenglonCotizacion(40, null, "1.250000", "15.50", "2.50")))
+            listOf(RenglonCotizacion(40, presentationId, "1.250000", "15.50", "2.50")))
         val uuid = repo.borradores(42).single().uuid
         return Fixture(driver, db, repo, CotizacionOutboxSync(repo), uuid, revision)
     }
@@ -86,6 +87,7 @@ class CotizacionOutboxSyncTest {
             assertEquals(30, payload["clienteId"]?.jsonPrimitive?.int)
             assertEquals("FACTURA", payload["documentoSolicitado"]?.jsonPrimitive?.content)
             assertEquals("1.250000", payload["renglones"]!!.jsonArray.single().jsonObject["cantidad"]?.jsonPrimitive?.content)
+            assertFalse(payload["renglones"]!!.jsonArray.single().jsonObject.containsKey("presentacionId"))
             assertFalse(payload["renglones"]!!.jsonArray.single().jsonObject.getValue("cantidad").jsonPrimitive.isString)
             assertEquals("2.50", payload["renglones"]!!.jsonArray.single().jsonObject["descuentoSolicitado"]?.jsonPrimitive?.content)
             val quote = f.repo.buscar(f.uuid)
@@ -99,6 +101,25 @@ class CotizacionOutboxSyncTest {
             assertEquals("CREADA", quote.resultadoEnvio)
             assertFails { f.repo.guardarBorrador(42, 20, 30, "2026-10-02", "FACTURA", null, quote.renglones, f.uuid) }
             Unit
+        } finally { f.driver.getConnection().close(); f.driver.close() }
+    }
+
+    @Test fun commercialPresentationPersistsRealIdAndFactorPriceInFrozenSyncPayload() = runBlocking {
+        val withPresentation = commercial.replace(
+            "\"presentaciones\":[]",
+            """"presentaciones":[{"cantidad_base":12,"descripcion":"Caja","es_predeterminada":false,"es_unidad_venta":true,"factor_conversion":12,"id_presentacion":77,"id_unidad":1,"producto_id":40}]"""
+        )
+        val f = fixture(withPresentation, 77)
+        try {
+            val quote = f.repo.buscar(f.uuid)
+            assertEquals(77L, quote.renglones.single().presentacionId)
+            assertEquals("186.000000", quote.renglones.single().precioReferencia)
+            val payload = Json.parseToJsonElement(f.queue.congelar(f.uuid, 42)).jsonObject
+            val line = payload.getValue("renglones").jsonArray.single().jsonObject
+            assertEquals(77L, line.getValue("presentacionId").jsonPrimitive.long)
+            assertEquals("1.250000", line.getValue("cantidad").jsonPrimitive.content)
+            assertEquals("186.000000", line.getValue("precioReferencia").jsonPrimitive.content)
+            assertEquals(f.revision, payload.getValue("revisionComercialId").jsonPrimitive.content)
         } finally { f.driver.getConnection().close(); f.driver.close() }
     }
 

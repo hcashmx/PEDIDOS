@@ -7,6 +7,28 @@ import java.time.LocalDate
 
 /** Mirrors CotizacionPreciosErp and the existing Venta commercial resolvers over one immutable v3 snapshot. */
 class CotizacionPricing(private val data: JsonObject) {
+    data class PresentationOption(
+        val key: String,
+        val productId: Long,
+        val presentationId: Long?,
+        val unitId: Long,
+        val unitName: String,
+        val description: String,
+        val factor: BigDecimal?,
+        val baseUnit: Boolean,
+        val defaultPresentation: Boolean,
+        val selectable: Boolean,
+        val unavailableReason: String?
+    ) {
+        val label: String
+            get() {
+                val factorText = factor?.stripTrailingZeros()?.toPlainString() ?: "sin factor válido"
+                if (baseUnit) return "$unitName — Unidad base · factor $factorText"
+                val name = description.ifBlank { unitName }
+                return "$name — Presentación comercial #$presentationId · unidad $unitName · factor $factorText"
+            }
+    }
+
     data class Result(
         val customerPriceTypeId: Long,
         val listUnitPrice: BigDecimal,
@@ -35,6 +57,66 @@ class CotizacionPricing(private val data: JsonObject) {
         val id: Long, val priority: Long?, val valueType: String?, val value: BigDecimal,
         val from: LocalDate?, val to: LocalDate?, val active: Boolean, val status: String?, val benefit: String?
     )
+
+    /** Builds selector identities only from the immutable revision. Null is the ERP base-unit identity. */
+    fun presentationOptions(productId: Long): List<PresentationOption> {
+        val product = rows("productos").firstOrNull { it.long("id_producto") == productId }
+            ?: error("El producto no pertenece a esta revisión comercial.")
+        val baseUnitId = product.longOrNull("id_unidad")
+            ?: error("El producto no tiene unidad base en esta revisión comercial.")
+        val baseUnit = rows("unidades").firstOrNull { it.long("id_unidad") == baseUnitId }
+            ?: error("La unidad base no pertenece a esta revisión comercial.")
+        val baseName = baseUnit.stringOrNull("nombre")?.takeIf { it.isNotBlank() }
+            ?: "Unidad $baseUnitId"
+        val result = mutableListOf(
+            PresentationOption(
+                key = "base:$productId",
+                productId = productId,
+                presentationId = null,
+                unitId = baseUnitId,
+                unitName = baseName,
+                description = baseName,
+                factor = BigDecimal.ONE,
+                baseUnit = true,
+                defaultPresentation = false,
+                selectable = true,
+                unavailableReason = null
+            )
+        )
+        rows("presentaciones")
+            .filter { it.longOrNull("producto_id") == productId }
+            .sortedBy { it.long("id_presentacion") }
+            .forEach { row ->
+                val presentationId = row.long("id_presentacion")
+                val unitId = row.longOrNull("id_unidad")
+                val unit = unitId?.let { id -> rows("unidades").firstOrNull { it.long("id_unidad") == id } }
+                val conversion = row.decimalOrNull("factor_conversion")?.takeIf { it.signum() > 0 }
+                    ?: row.decimalOrNull("cantidad_base")?.takeIf { it.signum() > 0 }
+                val reason = when {
+                    row.boolOrNull("es_unidad_venta") == false ->
+                        "No está habilitada para venta en esta revisión comercial."
+                    unitId == null || unit == null ->
+                        "No tiene una unidad histórica válida."
+                    conversion == null ->
+                        "No tiene un factor histórico válido."
+                    else -> null
+                }
+                result += PresentationOption(
+                    key = "presentation:$presentationId",
+                    productId = productId,
+                    presentationId = presentationId,
+                    unitId = unitId ?: baseUnitId,
+                    unitName = unit?.stringOrNull("nombre")?.takeIf { it.isNotBlank() } ?: "Unidad ${unitId ?: "sin ID"}",
+                    description = row.stringOrNull("descripcion").orEmpty(),
+                    factor = conversion,
+                    baseUnit = false,
+                    defaultPresentation = row.boolOrNull("es_predeterminada") == true,
+                    selectable = reason == null,
+                    unavailableReason = reason
+                )
+            }
+        return result
+    }
 
     fun calculate(
         customerId: Long, agentId: Long?, productId: Long, presentationId: Long?,
@@ -169,7 +251,7 @@ class CotizacionPricing(private val data: JsonObject) {
         }
         val presentation = rows("presentaciones").firstOrNull { it.long("id_presentacion") == presentationId }
             ?: error("La presentación no pertenece a esta revisión comercial.")
-        require(presentation.long("id_producto") == productId) { "La presentación no pertenece al producto." }
+        require(presentation.long("producto_id") == productId) { "La presentación no pertenece al producto." }
         require(presentation.boolOrNull("es_unidad_venta") != false) { "La presentación no está habilitada para venta." }
         val conversion = presentation.decimalOrNull("factor_conversion")?.takeIf { it.signum() > 0 }
             ?: presentation.decimalOrNull("cantidad_base")?.takeIf { it.signum() > 0 }

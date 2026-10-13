@@ -75,13 +75,59 @@ class CotizacionPricingTest {
     }
 
     @Test fun presentationFactorFeedsBaseQuantityAndIsAppliedOnceToOfferedUnit() {
-        val snapshot = baseSnapshot().replace("\"presentaciones\":[]", "\"presentaciones\":[{\"id_presentacion\":4,\"id_producto\":10,\"id_unidad\":2,\"factor_conversion\":5,\"cantidad_base\":5,\"es_unidad_venta\":true}]")
+        val snapshot = baseSnapshot().replace("\"presentaciones\":[]", "\"presentaciones\":[{\"id_presentacion\":4,\"producto_id\":10,\"id_unidad\":2,\"factor_conversion\":5,\"cantidad_base\":5,\"es_unidad_venta\":true}]")
             .replace("\"precios_volumen\":[]", "\"precios_volumen\":[${volume(1,10,2)}]")
         val result = run(calc(snapshot), "2", 4)
         assertEquals("10.000000", result.baseQuantity.toPlainString())
         assertEquals("5", result.presentationFactor.stripTrailingZeros().toPlainString())
         assertEquals("450.000000", result.offeredUnitPrice.toPlainString())
         assertEquals("900.000000", result.netLineAmount.toPlainString())
+    }
+
+    @Test fun r4ProductOneEquivalentPresentationsKeepRealIdentitiesAndResolveSameHistoricalPrice() {
+        val snapshot = baseSnapshot()
+            .replace("\"precio\":100", "\"precio\":1.3")
+            .replace(
+                "\"presentaciones\":[]",
+                """"presentaciones":[
+                    {"id_presentacion":1,"producto_id":10,"id_unidad":1,"descripcion":"Pieza","factor_conversion":1,"cantidad_base":1,"es_unidad_venta":true,"es_predeterminada":true},
+                    {"id_presentacion":1001,"producto_id":10,"id_unidad":1,"descripcion":"Pieza","factor_conversion":1,"cantidad_base":1,"es_unidad_venta":true,"es_predeterminada":true},
+                    {"id_presentacion":5258,"producto_id":10,"id_unidad":1,"descripcion":"COT04B UAT fraccion 0.3333","factor_conversion":0.3333,"cantidad_base":0.3333,"es_unidad_venta":false,"es_predeterminada":false}
+                ]""".trimIndent()
+            )
+        val pricing = calc(snapshot)
+        val options = pricing.presentationOptions(10)
+
+        assertEquals(listOf(null, 1L, 1001L, 5258L), options.map { it.presentationId })
+        assertEquals(4, options.map { it.key }.distinct().size)
+        assertEquals("Pieza — Unidad base · factor 1", options[0].label)
+        assertContains(options[1].label, "#1")
+        assertContains(options[2].label, "#1001")
+        assertFalse(options[3].selectable)
+        assertContains(options[3].unavailableReason.orEmpty(), "No está habilitada")
+
+        for (presentationId in listOf<Long?>(null, 1, 1001)) {
+            val result = run(pricing, presentationId = presentationId)
+            assertEquals("1.300000", result.offeredUnitPrice.toPlainString())
+            assertEquals("1.000000", result.baseQuantity.toPlainString())
+        }
+    }
+
+    @Test fun invalidMissingAndForeignPresentationsFailWithoutZeroOrSilentFallback() {
+        val presentations = """"presentaciones":[
+            {"id_presentacion":8,"producto_id":10,"id_unidad":1,"descripcion":"Sin factor","factor_conversion":null,"cantidad_base":null,"es_unidad_venta":true},
+            {"id_presentacion":9,"producto_id":11,"id_unidad":1,"descripcion":"Ajena","factor_conversion":2,"cantidad_base":2,"es_unidad_venta":true}
+        ]""".trimIndent()
+        val pricing = calc(baseSnapshot().replace("\"presentaciones\":[]", presentations))
+
+        val missingFactor = pricing.presentationOptions(10).single { it.presentationId == 8L }
+        assertFalse(missingFactor.selectable)
+        assertContains(missingFactor.unavailableReason.orEmpty(), "factor histórico")
+        assertFailsWith<IllegalStateException> { run(pricing, presentationId = 999) }
+        assertFailsWith<IllegalArgumentException> { run(pricing, presentationId = 9) }
+        assertFailsWith<IllegalStateException> {
+            run(calc(baseSnapshot().replace("\"precios_lista\":[", "\"precios_lista\":[] , \"precios_lista_eliminados\":[")))
+        }
     }
 
     @Test fun promotionPercentageAmountDateAndPriorityMatchHistoricalResolver() {

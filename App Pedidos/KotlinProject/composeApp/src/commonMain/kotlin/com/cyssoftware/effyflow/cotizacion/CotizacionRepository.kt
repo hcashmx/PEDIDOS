@@ -264,11 +264,16 @@ class CotizacionRepository(internal val db: EffyDatabase = DatabaseProvider.data
         val unitIds = p.datosComerciales.getValue("unidades").jsonArray.map { it.jsonObject.requiredLong("id_unidad") }.toSet()
         val typeIds = p.datosComerciales.getValue("tipos_precio").jsonArray.map { it.jsonObject.requiredLong("id_tipo_precio") }.toSet()
         val promotionIds = p.datosComerciales.getValue("promociones").jsonArray.map { it.jsonObject.requiredLong("id") }.toSet()
+        val presentationIds = p.datosComerciales.getValue("presentaciones").jsonArray
+            .map { it.jsonObject.requiredLong("id_presentacion") }.toSet()
         require(clientIds.size == p.datosComerciales.getValue("clientes_lista").jsonArray.size)
         require(productIds.size == p.datosComerciales.getValue("productos").jsonArray.size)
         require(unitIds.size == p.datosComerciales.getValue("unidades").jsonArray.size)
         require(typeIds.size == p.datosComerciales.getValue("tipos_precio").jsonArray.size)
         require(promotionIds.size == p.datosComerciales.getValue("promociones").jsonArray.size)
+        require(presentationIds.size == p.datosComerciales.getValue("presentaciones").jsonArray.size) {
+            "La revisión contiene identificadores de presentación duplicados."
+        }
         p.datosComerciales.getValue("clientes_lista").jsonArray.forEach { row ->
             require(row.jsonObject.requiredLong("numero_precio_id") in typeIds) { "Un cliente referencia una lista inexistente." }
         }
