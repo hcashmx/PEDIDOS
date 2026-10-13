@@ -1,6 +1,7 @@
 package com.cyssoftware.effyflow.login.data
 
 import com.cyssoftware.effyflow.config.AppConfigRepository
+import com.cyssoftware.effyflow.cotizacion.cotizacionesSyncClient
 import com.cyssoftware.effyflow.login.data.model.*
 import com.cyssoftware.effyflow.pedido.sincronizacion.viewModel.configureSyncBearer
 import io.ktor.client.*
@@ -8,21 +9,32 @@ import io.ktor.client.call.*
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
 internal val authorizationMutex = Mutex()
+typealias SyncAuthClientFactory = (
+    () -> Pair<String?, String?>,
+    (String, String) -> Unit,
+    () -> String,
+    Long
+) -> HttpClient
 
 class LoginRepository(
     private val local: AuthLocalDataSource = AuthLocalDataSource(),
     private val baseUrl: () -> String = { AppConfigRepository().requireBaseUrl() },
     private val client: HttpClient = authHttpClient(),
-    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
+    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    private val syncClientFactory: SyncAuthClientFactory = { getToken, saveTokens, refreshUrl, timeoutMillis ->
+        cotizacionesSyncClient(getToken, saveTokens, timeoutMillis, refreshUrl)
+    }
 ) {
     fun updateTokens(accessToken: String, refreshToken: String) = local.updateTokens(accessToken, refreshToken)
     fun getLastEmail() = local.getCachedEmail()
@@ -32,6 +44,37 @@ class LoginRepository(
         val session = local.getSession()
         return if (session?.usuarioId?.toLong() == userId) session.accessToken to session.refreshToken else null to null
     }
+
+    /** Resume only a persisted local identity that Sync still accepts; offline access still requires its password. */
+    suspend fun restoreRemoteSession(): Long? = withContext(dispatcher) {
+        authMutex.withLock {
+            val session = local.getSession() ?: return@withLock null
+            val userId = session.usuarioId?.toLong() ?: return@withLock null
+            val endpoint = try {
+                requireSecureAuthUrl(baseUrl())
+            } catch (_: Exception) {
+                return@withLock null
+            }
+            val syncClient = syncClientFactory(
+                { getSyncTokensForUser(userId) },
+                { access, refresh -> updateTokensForUser(userId, access, refresh) },
+                { "$endpoint/api/auth/refresh" },
+                SESSION_RESTORE_TIMEOUT_MILLIS
+            )
+            try {
+                val response = syncClient.get("$endpoint/api/sync/catalogos/usuarios?page=0&size=1")
+                response.bodyAsText()
+                if (response.status == HttpStatusCode.OK && local.getSession()?.usuarioId?.toLong() == userId) userId else null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } finally {
+                syncClient.close()
+            }
+        }
+    }
+
     fun updateTokensForUser(userId: Long, accessToken: String, refreshToken: String) = local.updateTokensForUser(userId, accessToken, refreshToken)
     fun logout() = local.clearSession()
     fun hasCatalog() = local.hasCatalog()
@@ -109,7 +152,10 @@ class LoginRepository(
         })
         return response.body()
     }
-    companion object { private val authMutex = authorizationMutex }
+    companion object {
+        private val authMutex = authorizationMutex
+        private const val SESSION_RESTORE_TIMEOUT_MILLIS = 4_000L
+    }
 }
 
 fun authHttpClient() = HttpClient {

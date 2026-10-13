@@ -3,6 +3,8 @@ package com.cyssoftware.effyflow
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.cyssoftware.effyflow.db.EffyDatabase
 import com.cyssoftware.effyflow.login.data.AuthLocalDataSource
+import com.cyssoftware.effyflow.login.data.LoginRepository
+import com.cyssoftware.effyflow.login.data.SyncAuthClientFactory
 import com.cyssoftware.effyflow.login.data.model.LoginResponse
 import java.nio.file.Files
 import kotlin.test.*
@@ -18,6 +20,88 @@ import kotlinx.serialization.json.*
 import com.cyssoftware.effyflow.pedido.sincronizacion.viewModel.configureSyncBearer
 
 class TokenRefreshPersistenceTest {
+    private fun syncClientFactory(engine: MockEngine): SyncAuthClientFactory = { getToken, saveTokens, refreshUrl, _ ->
+        HttpClient(engine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            configureSyncBearer(getToken, saveTokens, refreshUrl)
+        }
+    }
+
+    @Test
+    fun startupRestoreKeepsSessionWhenAccessTokenIsValid() = runBlocking {
+        ComercialFixture().use { f ->
+            val storage = AuthLocalDataSource(f.db)
+            seedSession(storage, "seller", "test-only-password", LoginResponse(
+                accessToken = "valid-access", refreshToken = "stable-refresh", usuarioId = 42, nombre = "Test", roles = "AGENTE"))
+            var refreshCalls = 0
+            val engine = MockEngine { request ->
+                if (request.url.encodedPath == "/api/auth/refresh") refreshCalls++
+                if (request.headers[HttpHeaders.Authorization] == "Bearer valid-access")
+                    respond("{}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+                else respond("", HttpStatusCode.Unauthorized, headersOf(HttpHeaders.WWWAuthenticate, "Bearer"))
+            }
+            val repository = LoginRepository(local = storage, baseUrl = { "https://sync.test" },
+                syncClientFactory = syncClientFactory(engine))
+            assertEquals(42L, repository.restoreRemoteSession())
+            assertEquals(0, refreshCalls)
+            assertEquals(42, storage.getSession()?.usuarioId)
+        }
+    }
+
+    @Test
+    fun startupRestoreRefreshesExpiredAccessAndPersistsTokens() = runBlocking {
+        ComercialFixture().use { f ->
+            val storage = AuthLocalDataSource(f.db)
+            seedSession(storage, "seller", "test-only-password", LoginResponse(
+                accessToken = "expired-access", refreshToken = "stable-refresh", usuarioId = 42, nombre = "Test", roles = "AGENTE"))
+            var refreshCalls = 0
+            var protectedCalls = 0
+            val engine = MockEngine { request ->
+                if (request.url.encodedPath == "/api/auth/refresh") {
+                    refreshCalls++
+                    respond("{\"accessToken\":\"renewed-access\",\"refreshToken\":\"stable-refresh\"}",
+                        HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+                } else {
+                    protectedCalls++
+                    if (request.headers[HttpHeaders.Authorization] == "Bearer renewed-access")
+                        respond("{}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+                    else respond("", HttpStatusCode.Unauthorized, headersOf(HttpHeaders.WWWAuthenticate, "Bearer"))
+                }
+            }
+            val repository = LoginRepository(local = storage, baseUrl = { "https://sync.test" },
+                syncClientFactory = syncClientFactory(engine))
+            assertEquals(42L, repository.restoreRemoteSession())
+            assertEquals(1, refreshCalls)
+            assertTrue(protectedCalls >= 2)
+            assertEquals("renewed-access", storage.getSession()?.accessToken)
+            assertEquals("stable-refresh", storage.getSession()?.refreshToken)
+            assertEquals(42, storage.getSession()?.usuarioId)
+        }
+    }
+
+    @Test
+    fun startupRestoreFallsBackToPasswordLoginWhenRefreshIsRejected() = runBlocking {
+        ComercialFixture().use { f ->
+            val storage = AuthLocalDataSource(f.db)
+            seedSession(storage, "seller", "test-only-password", LoginResponse(
+                accessToken = "expired-access", refreshToken = "revoked-refresh", usuarioId = 42, nombre = "Test", roles = "AGENTE"))
+            var refreshCalls = 0
+            val engine = MockEngine { request ->
+                if (request.url.encodedPath == "/api/auth/refresh") {
+                    refreshCalls++
+                    respond("", HttpStatusCode.Unauthorized)
+                } else respond("", HttpStatusCode.Unauthorized, headersOf(HttpHeaders.WWWAuthenticate, "Bearer"))
+            }
+            val repository = LoginRepository(local = storage, baseUrl = { "https://sync.test" },
+                syncClientFactory = syncClientFactory(engine))
+            assertNull(repository.restoreRemoteSession())
+            assertEquals(1, refreshCalls)
+            assertEquals(42, storage.getSession()?.usuarioId)
+            assertNull(repository.login("seller", "test-only-password").error)
+            assertEquals(42, storage.getSession()?.usuarioId)
+        }
+    }
+
     @Test fun lateRefreshCannotAssignPreviousUsersTokensToNewLocalUser() {
         ComercialFixture().use { f ->
             val storage=AuthLocalDataSource(f.db)

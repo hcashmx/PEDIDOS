@@ -315,12 +315,16 @@ private fun JsonObject.requiredLong(field: String): Long = checkNotNull(this[fie
 expect fun sha256Hex(bytes: ByteArray): String
 
 fun cotizacionesSyncClient(getToken: () -> Pair<String?, String?>, saveTokens: (String, String) -> Unit,
-                           refreshUrl: () -> String): HttpClient = HttpClient {
+                           refreshUrl: () -> String): HttpClient =
+    cotizacionesSyncClient(getToken, saveTokens, 30_000, refreshUrl)
+
+fun cotizacionesSyncClient(getToken: () -> Pair<String?, String?>, saveTokens: (String, String) -> Unit,
+                           timeoutMillis: Long, refreshUrl: () -> String): HttpClient = HttpClient {
     install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     install(io.ktor.client.plugins.HttpTimeout) {
-        requestTimeoutMillis = 30_000
-        connectTimeoutMillis = 8_000
-        socketTimeoutMillis = 30_000
+        requestTimeoutMillis = timeoutMillis
+        connectTimeoutMillis = minOf(timeoutMillis, 8_000)
+        socketTimeoutMillis = timeoutMillis
     }
     configureSyncBearer(getToken, saveTokens, refreshUrl)
 }

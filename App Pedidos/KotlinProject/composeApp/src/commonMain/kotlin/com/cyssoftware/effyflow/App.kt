@@ -47,7 +47,7 @@ fun App() {
     val triggerGlobalRefresh = { globalDataRefreshKey++ }
     // 2. Estados de la Sesión
     // 'isLoading' bloquea la UI hasta que sepamos si hay usuario o no
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
     // Aquí guardamos el ID real recuperado de la BD
     var usuarioIdLogueado by remember { mutableStateOf<Long?>(null) }
     // Definimos la ruta inicial dinámicamente
@@ -57,10 +57,15 @@ fun App() {
 
     // 3. Lógica de Arranque (Check Session)
     LaunchedEffect(Unit) {
-        // Each launch asks for the local password; persisted tokens/verifiers remain independent.
-        loginRepository.logout()
-        startRoute = if (!loginRepository.hasCatalog() && configRepository.getBaseUrl().isNullOrBlank()) "server_config_required" else "login"
-
+        val resumedUserId = loginRepository.restoreRemoteSession()
+        if (resumedUserId != null) {
+            usuarioIdLogueado = resumedUserId
+            startRoute = "home"
+        } else {
+            loginRepository.logout()
+            startRoute = if (!loginRepository.hasCatalog() && configRepository.getBaseUrl().isNullOrBlank()) "server_config_required" else "login"
+        }
+        isLoading = false
     }
 
     // Local session revocation (disable/version change) must also leave protected screens.
