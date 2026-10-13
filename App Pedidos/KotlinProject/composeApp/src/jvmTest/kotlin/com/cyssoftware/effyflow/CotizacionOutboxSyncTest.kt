@@ -198,6 +198,31 @@ class CotizacionOutboxSyncTest {
         }
     }
 
+    @Test fun erpTechnical401RequiresReviewWithoutInvalidatingSellerSession() = runBlocking {
+        val cases = listOf(
+            "CREDENCIAL_TECNICA_ERP_INVALIDA" to "ERP rechazo su autenticacion tecnica.",
+            "ASERCION_RS256_INVALIDA_O_VENCIDA" to "ERP rechazo la asercion comercial."
+        )
+        cases.forEach { (code, message) ->
+            val f = fixture()
+            try {
+                val engine = httpClient { _, _ -> 401 to
+                    """{"resultado":"$code","reintentable":false,"origenError":"ERP","error":"$message","detalle":{"requiereAutenticacion":false}}"""
+                }
+                engine.use {
+                    assertEquals("REQUIERE_REVISION", f.queue.enviar(f.uuid, 42, it, "https://sync.test") { "a" to "r" }.estado)
+                }
+                val quote = f.repo.buscar(f.uuid)
+                val outbox = checkNotNull(f.queue.outbox(f.uuid))
+                assertEquals("REQUIERE_REVISION", quote.estadoLocal)
+                assertEquals(code, outbox.ultimo_error_codigo)
+                assertEquals(message, quote.ultimoError)
+                assertNull(outbox.proximo_intento_en)
+                assertNull(quote.idErp)
+            } finally { f.driver.getConnection().close(); f.driver.close() }
+        }
+    }
+
     @Test fun unauthenticatedSendQueuesWithoutHttpAndRetryAfterLoginKeepsAuthor() = runBlocking {
         val f = fixture()
         var calls = 0

@@ -170,6 +170,8 @@ class CotizacionOutboxSync(
         val code = body?.text("resultado") ?: body?.text("origenError") ?: "HTTP_$http"
         val message = body?.text("error")?.take(500) ?: "Sync respondio HTTP $http."
         return when {
+            http == 401 && body?.text("origenError") == "ERP" ->
+                mark(uuid, userId, "REQUIERE_REVISION", code, message, null, null)
             http == 401 -> mark(uuid, userId, "REQUIERE_AUTENTICACION", code, "La sesion remota fue rechazada. Inicia sesion con el usuario autor.", null, null)
             http == 403 -> mark(uuid, userId, "REQUIERE_AUTORIZACION", code, message, null, null)
             http == 400 || http == 409 || http == 422 -> mark(uuid, userId, "REQUIERE_REVISION", code, message, null, null)
