@@ -10,5 +10,9 @@ upsertValue:
 INSERT OR REPLACE INTO app_config (key, value)
 VALUES (?, ?);
 
+insertValueIfAbsent:
+INSERT OR IGNORE INTO app_config (key, value)
+VALUES (?, ?);
+
 deleteValue:
 DELETE FROM app_config WHERE key = ?;

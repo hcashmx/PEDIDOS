@@ -2,6 +2,7 @@ package com.cyssoftware.effyflow.login.data
 
 import com.cyssoftware.effyflow.config.AppConfigRepository
 import com.cyssoftware.effyflow.cotizacion.cotizacionesSyncClient
+import com.cyssoftware.effyflow.cotizacion.estados.CotizacionEstadosRepository
 import com.cyssoftware.effyflow.login.data.model.*
 import com.cyssoftware.effyflow.pedido.sincronizacion.viewModel.configureSyncBearer
 import io.ktor.client.*
@@ -76,7 +77,11 @@ class LoginRepository(
     }
 
     fun updateTokensForUser(userId: Long, accessToken: String, refreshToken: String) = local.updateTokensForUser(userId, accessToken, refreshToken)
-    fun logout() = local.clearSession()
+    fun logout() {
+        // Received state is authorization-bound. Commercial captures/outbox are separate and remain intact.
+        local.getSession()?.usuarioId?.toLong()?.let { CotizacionEstadosRepository().purgeUser(it) }
+        local.clearSession()
+    }
     fun hasCatalog() = local.hasCatalog()
     fun users() = local.users()
 

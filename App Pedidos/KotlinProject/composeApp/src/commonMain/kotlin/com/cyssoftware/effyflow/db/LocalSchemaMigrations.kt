@@ -116,7 +116,41 @@ object LocalSchemaMigrations {
             intentos INTEGER NOT NULL DEFAULT 0, ultimo_error_codigo TEXT, ultimo_error TEXT,
             ultimo_intento_en TEXT, proximo_intento_en TEXT, resultado_envio TEXT, respuesta_json TEXT,
             FOREIGN KEY (uuid_local) REFERENCES cotizaciones(uuid_local) ON DELETE CASCADE)""", 0)
+        migrateCotizacionEstados(driver)
         migrateOfflineAuthentication(driver)
+    }
+
+    private fun migrateCotizacionEstados(driver: SqlDriver) {
+        // 05C-2 uses the existing idempotent migration path and is isolated from capture/outbox.
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS cot_estado_sync_session (
+            session_id TEXT NOT NULL PRIMARY KEY, user_id INTEGER NOT NULL, agent_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL, generation INTEGER NOT NULL, remote_state TEXT NOT NULL,
+            bootstrap_state TEXT NOT NULL, last_committed_sequence INTEGER NOT NULL DEFAULT 0,
+            last_acked_sequence INTEGER NOT NULL DEFAULT 0, snapshot_end_sequence INTEGER,
+            offline_valid_until_utc TEXT, last_server_observed_at_utc TEXT,
+            last_elapsed_observed_ms INTEGER, max_observed_wall_utc TEXT,
+            revocation_reason_code TEXT, ingestion_suspended INTEGER NOT NULL DEFAULT 0,
+            capacity_code TEXT, last_sync_at_utc TEXT, last_error_code TEXT, last_error_message TEXT,
+            created_at_utc TEXT NOT NULL, updated_at_utc TEXT NOT NULL,
+            UNIQUE(user_id,agent_id,device_id,generation))""", 0)
+        driver.execute(null, "CREATE INDEX IF NOT EXISTS cot_estado_session_identity_idx ON cot_estado_sync_session(user_id,agent_id,device_id,generation DESC)", 0)
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS cot_estado_document (
+            session_id TEXT NOT NULL, generation INTEGER NOT NULL, cotizacion_uuid TEXT NOT NULL,
+            erp_id INTEGER NOT NULL, version INTEGER NOT NULL, estado TEXT NOT NULL, agent_id INTEGER,
+            updated_at_utc TEXT, last_delivery_sequence INTEGER NOT NULL, payload_fingerprint TEXT NOT NULL,
+            PRIMARY KEY(session_id,generation,cotizacion_uuid), UNIQUE(session_id,generation,erp_id),
+            FOREIGN KEY(session_id) REFERENCES cot_estado_sync_session(session_id) ON DELETE CASCADE)""", 0)
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS cot_estado_tombstone (
+            session_id TEXT NOT NULL, generation INTEGER NOT NULL, cotizacion_uuid TEXT NOT NULL,
+            erp_id INTEGER NOT NULL, version INTEGER NOT NULL, event_id INTEGER, changed_at_utc TEXT,
+            last_delivery_sequence INTEGER NOT NULL, payload_fingerprint TEXT NOT NULL,
+            PRIMARY KEY(session_id,generation,cotizacion_uuid),
+            FOREIGN KEY(session_id) REFERENCES cot_estado_sync_session(session_id) ON DELETE CASCADE)""", 0)
+        driver.execute(null, """CREATE TABLE IF NOT EXISTS cot_estado_delivery_receipt (
+            session_id TEXT NOT NULL, generation INTEGER NOT NULL, delivery_sequence INTEGER NOT NULL,
+            kind TEXT NOT NULL, payload_fingerprint TEXT NOT NULL, applied_at_utc TEXT NOT NULL,
+            PRIMARY KEY(session_id,generation,delivery_sequence),
+            FOREIGN KEY(session_id) REFERENCES cot_estado_sync_session(session_id) ON DELETE CASCADE)""", 0)
     }
 
     private fun migrateOfflineAuthentication(driver: SqlDriver) {

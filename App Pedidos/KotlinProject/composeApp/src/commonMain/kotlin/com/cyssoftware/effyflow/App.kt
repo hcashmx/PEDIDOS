@@ -33,6 +33,7 @@ import com.cyssoftware.effyflow.ticket.TicketScreen
 import com.cyssoftware.effyflow.ticket.TicketViewModel
 import com.cyssoftware.effyflow.cotizacion.CotizacionRepository
 import com.cyssoftware.effyflow.cotizacion.CotizacionesScreen
+import com.cyssoftware.effyflow.cotizacion.estados.CotizacionesSincronizadasScreen
 
 @Composable
 fun App() {
@@ -205,6 +206,7 @@ fun App() {
                     },
                     onNuevoPedido = { navController.navigate("nuevo_pedido") },
                     onCotizaciones = { navController.navigate("cotizaciones") },
+                    onCotizacionesSincronizadas = { navController.navigate("cotizaciones_sincronizadas") },
                     onPedidosDia = { navController.navigate("pedidos_dia") },
                     onSincronizacion = { navController.navigate("sync") },
                     onReimpresion = { navController.navigate("reimpresion") }
@@ -270,6 +272,27 @@ fun App() {
                     saveTokens = { access, refresh -> loginRepository.updateTokensForUser(userId, access, refresh) },
                     onBack = { navController.popBackStack() }
                 )
+            }
+        }
+
+        composable("cotizaciones_sincronizadas") {
+            val userId = usuarioIdLogueado
+            if (userId == null) {
+                SimpleScreen("Inicia sesión para consultar Cotizaciones sincronizadas.")
+            } else {
+                val agentId = remember(userId) { pedidoRepository.getAgentePorUsuario(userId)?.id_agente }
+                if (agentId == null) {
+                    SimpleScreen("El usuario no tiene agente comercial vigente.")
+                } else {
+                    CotizacionesSincronizadasScreen(
+                        userId = userId, agentId = agentId,
+                        baseUrl = configRepository.requireBaseUrl(),
+                        getTokens = { loginRepository.getSyncTokensForUser(userId) },
+                        saveTokens = { access, refresh -> loginRepository.updateTokensForUser(userId, access, refresh) },
+                        identityStillActive = { loginRepository.getOfflineSession()?.usuarioId?.toLong() == userId },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             }
         }
 

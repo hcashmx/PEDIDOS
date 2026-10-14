@@ -26,6 +26,7 @@ fun PedidoScreen(
     onBack: () -> Unit, // 👈 nuevo callback para volver
     onNuevoPedido: () -> Unit,
     onCotizaciones: () -> Unit = {},
+    onCotizacionesSincronizadas: () -> Unit = {},
     onPedidosDia: () -> Unit,
     onSincronizacion: () -> Unit,
     onReimpresion: () -> Unit
@@ -122,6 +123,9 @@ fun PedidoScreen(
 
                         PedidoButton(text = "Cotizaciones", icon = Icons.Default.Description,
                             color = Color(0xFF6A4C93), onClick = onCotizaciones)
+
+                        PedidoButton(text = "Cotizaciones sincronizadas", icon = Icons.Default.CloudSync,
+                            color = Color(0xFF455A64), onClick = onCotizacionesSincronizadas)
 
                         PedidoButton(
                             text = "Pedidos del Día",
