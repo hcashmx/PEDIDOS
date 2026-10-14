@@ -16,6 +16,7 @@ Thumbs.db
 # Java, Maven, Gradle y Kotlin
 **/target/
 **/build/
+Backend/effyFlow/.cotizaciones-pg17-*/
 Backend/effyFlow/bin/
 **/.gradle/
 **/.kotlin/
